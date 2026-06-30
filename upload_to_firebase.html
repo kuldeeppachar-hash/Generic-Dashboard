@@ -346,10 +346,36 @@ await db.ref(
 .set(dailyData);
 
 
+await db.ref("/meta").set({
+
+period_tag:"Generic Division",
+
+sap_info:
+"₹"+
+(totalSales/100000).toFixed(2)
++" Lacs",
+
+updated:
+new Date().toString()
+
+});
+
+
 await db.ref(
-"/meta"
-)
-.set({
+"/upload_history/"+Date.now()
+).set({
+
+date:new Date()
+.toLocaleString(),
+
+sales:
+"₹"+
+(totalSales/100000).toFixed(2)
++" Lacs",
+
+rows:rows.length
+
+});
 
 period_tag:
 "Generic Division",
