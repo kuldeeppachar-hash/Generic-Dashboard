@@ -1,277 +1,219 @@
-async function uploadData(){
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Generic Division — Firebase Uploader</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{--bg:#060a12;--surface:#0d1520;--border:rgba(56,189,248,0.15);--cyan:#38bdf8;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--text:#e2e8f0;--text-dim:#64748b;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;}
+  .box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;max-width:640px;width:100%;}
+  h1{font-size:18px;color:var(--cyan);margin-bottom:6px;letter-spacing:-0.5px;}
+  .sub{color:var(--text-dim);font-size:11px;margin-bottom:30px;}
+  .step{border:1px solid var(--border);border-radius:10px;padding:16px 20px;margin-bottom:12px;}
+  .step-title{color:var(--amber);font-size:11px;letter-spacing:0.5px;margin-bottom:8px;}
+  .step-body{color:var(--text-dim);font-size:11px;line-height:1.7;}
+  .step-body b{color:var(--text);}
+  .btn{width:100%;padding:14px;border-radius:10px;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;letter-spacing:0.5px;margin-top:6px;transition:all 0.2s;}
+  .btn-upload{background:linear-gradient(135deg,#fbbf24,#f87171);color:#000;}
+  .btn-upload:hover{opacity:0.9;transform:translateY(-1px);}
+  .btn-upload:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+  .log{background:#020609;border:1px solid var(--border);border-radius:8px;padding:16px;margin-top:16px;min-height:100px;max-height:280px;overflow-y:auto;font-size:11px;line-height:1.8;white-space:pre-wrap;}
+  .log .ok{color:var(--green);}
+  .log .err{color:var(--red);}
+  .log .info{color:var(--cyan);}
+  .log .warn{color:var(--amber);}
+  .progress{height:4px;background:var(--border);border-radius:2px;margin-top:12px;overflow:hidden;}
+  .progress-fill{height:100%;background:linear-gradient(90deg,var(--cyan),var(--green));transition:width 0.4s;width:0%;}
+  a{color:var(--cyan);text-decoration:none;}
+  a:hover{text-decoration:underline;}
+  .file-drop{border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:all 0.2s;margin-bottom:12px;}
+  .file-drop:hover,.file-drop.drag{border-color:var(--cyan);background:rgba(56,189,248,0.05);}
+  .file-drop input{display:none;}
+  .file-name{color:var(--green);margin-top:6px;font-size:11px;}
+  .links{display:flex;gap:12px;margin-top:20px;justify-content:center;}
+  .link-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:transparent;transition:all 0.15s;text-decoration:none;display:inline-block;}
+  .link-btn:hover{border-color:var(--cyan);color:var(--cyan);}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>⬆ Generic Division — Firebase Data Uploader</h1>
+  <div class="sub">Upload the raw SAP export → it filters to Division = "Generic", aggregates, and pushes live to Firebase. No SO data is generated or stored.</div>
 
-try{
+  <div class="step">
+    <div class="step-title">// SOURCE OF TRUTH</div>
+    <div class="step-body">
+      This tool reads <b>only</b> the raw SAP export Excel — nothing else feeds this dashboard.<br>
+      It filters rows to <b>Division Name = "Generic"</b> and ignores every other division.<br>
+      <b>Columns used:</b> Division Name, State, City, Product Description, Net Amount, Invoice Date.<br>
+      <b>Note:</b> the export has no real HQ/Area column (Sale Offc. Desc. is blank), so "Area/HQ" below is built from <b>City</b> instead. If your SAP team starts populating Sale Offc. Desc., tell me and I'll switch the grouping to that.
+    </div>
+  </div>
 
-if(!rawFile){
+  <div class="file-drop" id="dropZone" onclick="document.getElementById('xlsxFile').click()" ondragover="event.preventDefault();this.classList.add('drag')" ondragleave="this.classList.remove('drag')" ondrop="handleDrop(event)">
+    <input type="file" id="xlsxFile" accept=".xlsx,.xls" onchange="handleFile(this.files[0])">
+    📁 Drop the SAP export (.xlsx) here or click to browse
+    <div class="file-name" id="fileName"></div>
+  </div>
+  <button class="btn btn-upload" id="xlsxBtn" onclick="uploadExcel()" disabled>
+    ⬆ PROCESS & UPLOAD TO FIREBASE
+  </button>
 
-alert("Select file first");
+  <div class="progress"><div class="progress-fill" id="prog"></div></div>
 
-return;
+  <div class="log" id="log"><span class="info">// Ready. Drop a SAP export to begin...</span></div>
 
-}
+  <div class="links">
+    <a href="dashboard.html" class="link-btn">📊 View Dashboard</a>
+  </div>
+</div>
 
-log("Loading Excel...");
-progress(10);
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
-const data=await rawFile.arrayBuffer();
-
-const workbook=XLSX.read(
-data,
-{
-type:"array"
-}
-);
-
-const sheet=
-workbook.Sheets[
-workbook.SheetNames[0]
-];
-
-const rows=
-XLSX.utils.sheet_to_json(
-sheet,
-{
-defval:""
-}
-);
-
-log("Rows loaded: "+rows.length);
-
-progress(20);
-
-
-let stateData={};
-let areaData={};
-let productData={};
-let customerData={};
-let dailyData={};
-
-let totalSales=0;
-let genericRows=0;
-
-
-rows.forEach(r=>{
-
-const division=
-String(
-r["Division Name"]||""
-)
-.trim()
-.toUpperCase();
-
-if(
-division!=="GENERIC"
-)
-return;
-
-
-const amount=parseFloat(
-r["Net Amount"]||0
-);
-
-if(
-isNaN(amount) ||
-amount<=0
-)
-return;
-
-
-genericRows++;
-
-const state=
-String(
-r["State"]||
-"Unknown"
-).trim();
-
-const area=
-String(
-r["Sale Offc. Desc."]||
-"Unknown"
-).trim();
-
-const product=
-String(
-r["Product Description"]||
-"Unknown"
-).trim();
-
-const customer=
-String(
-r["Customer Name"]||
-"Unknown"
-).trim();
-
-
-let invoiceDate=
-r["Invoice Date"];
-
-let date="Unknown";
-
-
-if(
-typeof invoiceDate==="number"
-){
-
-let d=new Date(
-Math.round(
-(invoiceDate-25569)
-*
-86400
-*
-1000
-)
-);
-
-date=
-d.toLocaleDateString(
-"en-IN"
-);
-
-}
-else if(invoiceDate){
-
-date=
-new Date(
-invoiceDate
-)
-.toLocaleDateString(
-"en-IN"
-);
-
-}
-
-
-totalSales+=amount;
-
-
-if(!stateData[state])
-stateData[state]={
-name:state,
-amount:0
+const firebaseConfig = {
+  apiKey: "AIzaSyCpleadoQKQStNOjk-Tq9Yqy6uGLVpdKi8",
+  authDomain: "generic-dashboard-b0355.firebaseapp.com",
+  databaseURL: "https://generic-dashboard-b0355-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "generic-dashboard-b0355",
+  storageBucket: "generic-dashboard-b0355.firebasestorage.app",
+  messagingSenderId: "180109315889",
+  appId: "1:180109315889:web:9d91bc775c06ace2a7ea10",
+  measurementId: "G-4LM4R78GRN"
 };
 
-stateData[state]
-.amount+=amount;
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
 
-
-
-if(!areaData[area])
-areaData[area]={
-name:area,
-amount:0
-};
-
-areaData[area]
-.amount+=amount;
-
-
-
-if(!productData[product])
-productData[product]={
-name:product,
-amount:0
-};
-
-productData[product]
-.amount+=amount;
-
-
-
-if(!customerData[customer])
-customerData[customer]={
-name:customer,
-amount:0
-};
-
-customerData[customer]
-.amount+=amount;
-
-
-
-if(!dailyData[date])
-dailyData[date]={
-date:date,
-amount:0
-};
-
-dailyData[date]
-.amount+=amount;
-
-
-});
-
-progress(50);
-
-log("Generic rows found: "+genericRows);
-
-
-await db.ref(
-"/state_data"
-).set(stateData);
-
-await db.ref(
-"/area_data"
-).set(areaData);
-
-await db.ref(
-"/product_data"
-).set(productData);
-
-await db.ref(
-"/customer_data"
-).set(customerData);
-
-await db.ref(
-"/daily_data"
-).set(dailyData);
-
-
-await db.ref(
-"/meta"
-).set({
-
-period_tag:
-"Generic Division",
-
-sap_info:
-"₹"+
-(
-totalSales/100000
-).toFixed(2)
-+" Lacs",
-
-updated:
-new Date()
-.toLocaleString()
-
-});
-
-
-progress(100);
-
-log(
-"✓ Upload completed successfully"
-);
-
-alert(
-"Firebase upload completed"
-);
-
+function log(msg, type='info') {
+  const el = document.getElementById('log');
+  el.innerHTML += `\n<span class="${type}">${msg}</span>`;
+  el.scrollTop = el.scrollHeight;
 }
-catch(err){
+function prog(pct) { document.getElementById('prog').style.width = pct + '%'; }
 
-console.error(err);
+window.handleDrop = function(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag');
+  handleFile(e.dataTransfer.files[0]);
+};
 
-log(
-"ERROR: "+
-err.message
-);
+window.handleFile = function(file) {
+  if (!file) return;
+  document.getElementById('fileName').textContent = '📄 ' + file.name;
+  document.getElementById('xlsxBtn').disabled = false;
+  log(`// File selected: ${file.name}`, 'info');
+  window._pendingFile = file;
+};
 
-alert(
-err.message
-);
+window.uploadExcel = async function() {
+  const file = window._pendingFile;
+  if (!file) return;
 
-}
+  log('// Loading SheetJS library...', 'info');
+  await new Promise(resolve => {
+    if (window.XLSX) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+    s.onload = resolve;
+    document.head.appendChild(s);
+  });
 
-}
+  const btn = document.getElementById('xlsxBtn');
+  btn.disabled = true;
+  btn.textContent = 'PROCESSING...';
+  prog(5);
+
+  try {
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, {cellDates:true});
+    const ws  = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    log(`✓ Loaded ${rows.length} rows from Excel`, 'ok');
+    prog(15);
+
+    const genericRows = rows.filter(r => String(r['Division Name']||'').trim() === 'Generic');
+    log(`✓ Filtered to Division = "Generic": ${genericRows.length} rows (dropped ${rows.length - genericRows.length} from other divisions)`, 'ok');
+    prog(25);
+
+    if (genericRows.length === 0) {
+      throw new Error('No rows found with Division Name = "Generic". Check the file is the correct SAP export.');
+    }
+
+    const stateMap = {}, cityMap = {}, prodMap = {}, dayMap = {};
+    let total = 0, lineCount = 0, minDate = null, maxDate = null;
+
+    genericRows.forEach(r => {
+      const amt = parseFloat(r['Net Amount'] || 0);
+      if (!amt) return;
+      lineCount++;
+      total += amt;
+
+      const state = String(r['State']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
+      const city  = String(r['City']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
+      const prod  = String(r['Product Description']||'Unknown').trim();
+
+      stateMap[state] = (stateMap[state]||0) + amt;
+      cityMap[city]   = (cityMap[city]||0) + amt;
+      prodMap[prod]   = (prodMap[prod]||0) + amt;
+
+      const rawDate = r['Invoice Date'];
+      if (rawDate) {
+        let d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+        if (!isNaN(d)) {
+          const dateStr = d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}).replace(/ /g,'-');
+          if (!minDate || d < minDate) minDate = d;
+          if (!maxDate || d > maxDate) maxDate = d;
+          dayMap[dateStr] = (dayMap[dateStr]||0) + amt;
+        }
+      }
+    });
+
+    log(`✓ Aggregated: ₹${(total/100000).toFixed(2)}L across ${lineCount} lines`, 'ok');
+    prog(45);
+
+    const state_data = {}, city_data = {}, product_data = {}, daily_data = {};
+    Object.entries(stateMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ state_data[`state_${i}`] = {name, amt: Math.round(amt*100)/100}; });
+    Object.entries(cityMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ city_data[`city_${i}`] = {name, amt: Math.round(amt*100)/100}; });
+    Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ product_data[`prod_${i}`] = {name, amt: Math.round(amt*100)/100}; });
+    Object.entries(dayMap).forEach(([date,amt],i)=>{ daily_data[`day_${i}`] = {date, amt: Math.round(amt*100)/100}; });
+
+    const meta = {
+      division: 'Generic',
+      total_net_sales: Math.round(total*100)/100,
+      period: minDate && maxDate ? `${minDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})} → ${maxDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}` : '',
+      period_tag: minDate ? minDate.toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : '',
+      billing_days: Object.keys(dayMap).length,
+      sap_info: `SAP Lines: ${lineCount} (Generic only) · ₹${(total/100000).toFixed(2)}L`,
+      uploaded_at: new Date().toISOString(),
+      area_field_note: 'Area/HQ grouping uses City — SAP export has no populated Sale Offc. Desc. field.'
+    };
+
+    log('// Uploading to Firebase (overwriting previous Generic data)...', 'info');
+    prog(60);
+    await Promise.all([
+      set(ref(db,'/state_data'), state_data),
+      set(ref(db,'/city_data'), city_data),
+      set(ref(db,'/product_data'), product_data),
+      set(ref(db,'/daily_data'), daily_data),
+      set(ref(db,'/meta'), meta),
+    ]);
+    prog(100);
+    log('🎉 ALL DATA PUSHED TO FIREBASE!', 'ok');
+    log(`→ ${lineCount} lines · ${Object.keys(stateMap).length} states · ${Object.keys(cityMap).length} cities · ${Object.keys(prodMap).length} products`, 'ok');
+    log('→ Open dashboard.html to view the live dashboard', 'info');
+    btn.textContent = '✓ UPLOADED!';
+    btn.style.background = 'linear-gradient(135deg,#4ade80,#22c55e)';
+  } catch(e) {
+    log('✗ ' + e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = '⬆ RETRY';
+    prog(0);
+  }
+};
+</script>
+</body>
+</html>
