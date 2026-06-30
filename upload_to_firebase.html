@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Generic Dashboard — Upload to Firebase</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+
+<script src="firebaseConfig.js"></script>
+
+<style>
+
+body{
+font-family:Arial;
+background:#08121d;
+color:white;
+padding:40px;
+}
+
+.container{
+max-width:800px;
+margin:auto;
+background:#111c2e;
+padding:30px;
+border-radius:12px;
+}
+
+h1{
+margin-bottom:20px;
+color:#38bdf8;
+}
+
+.dropZone{
+padding:50px;
+border:2px dashed #38bdf8;
+text-align:center;
+cursor:pointer;
+border-radius:12px;
+margin-bottom:20px;
+}
+
+button{
+padding:12px 20px;
+background:#38bdf8;
+border:none;
+border-radius:8px;
+cursor:pointer;
+font-size:15px;
+font-weight:bold;
+}
+
+.progress{
+margin-top:20px;
+height:25px;
+background:#333;
+border-radius:30px;
+overflow:hidden;
+}
+
+.fill{
+height:100%;
+width:0%;
+background:#4ade80;
+}
+
+.log{
+margin-top:30px;
+height:250px;
+overflow:auto;
+background:black;
+padding:20px;
+border-radius:10px;
+font-size:13px;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Generic Dashboard Upload Engine</h1>
+
+<div class="dropZone"
+onclick="document.getElementById('file').click()">
+
+<input
+type="file"
+id="file"
+accept=".xlsx,.xls"
+style="display:none"
+onchange="handleFile(this.files[0])">
+
+Drop SAP file or click here
+
+</div>
+
+<button
+id="uploadBtn"
+disabled
+onclick="uploadData()">
+
+PROCESS & UPLOAD
+
+</button>
+
+<div class="progress">
+<div class="fill" id="fill"></div>
+</div>
+
+<div class="log" id="log"></div>
+
+</div>
+
+
+<script>
+
+let rawFile=null;
+
+function log(msg){
+
+let l=document.getElementById("log");
+
+l.innerHTML+=msg+"<br>";
+
+l.scrollTop=l.scrollHeight;
+
+}
+
+function progress(p){
+
+document.getElementById(
+"fill"
+).style.width=p+"%";
+
+}
+
+function handleFile(file){
+
+rawFile=file;
+
+document.getElementById(
+"uploadBtn"
+).disabled=false;
+
+log("✓ File selected: "+file.name);
+
+}
+
+
+async function uploadData(){
+
+if(!rawFile) return;
+
+log("Loading Excel...");
+progress(10);
+
+const data=await rawFile.arrayBuffer();
+
+const workbook=XLSX.read(data);
+
+const sheet=
+workbook.Sheets[
+workbook.SheetNames[0]
+];
+
+const rows=
+XLSX.utils.sheet_to_json(sheet);
+
+progress(20);
+
+log(
+"Rows Loaded: "+
+rows.length
+);
+
+
+let stateData={};
+let areaData={};
+let productData={};
+let customerData={};
+let dailyData={};
+
+let totalSales=0;
+
+let processed={};
+
+rows.forEach(r=>{
+
+const division=
+String(
+r["Division Name"]||""
+)
+.trim()
+.toUpperCase();
+
+if(
+division!=="GENERIC"
+)
+return;
+
+
+const amount=parseFloat(
+r["Net Amount"]||
+0
+);
+
+if(
+amount<=0
+)
+return;
+
+
+const state=
+String(
+r["State"]||
+"Unknown"
+);
+
+const area=
+String(
+r["Sale Offc. Desc."]||
+"Unknown"
+);
+
+const product=
+String(
+r["Product Description"]||
+"Unknown"
+);
+
+const customer=
+String(
+r["Customer Name"]||
+"Unknown"
+);
+
+
+let date=
+String(
+r["Invoice Date"]||
+""
+);
+
+
+totalSales+=amount;
+
+
+if(!stateData[state])
+stateData[state]={
+name:state,
+amount:0
+};
+
+stateData[state]
+.amount+=amount;
+
+
+
+if(!areaData[area])
+areaData[area]={
+name:area,
+amount:0
+};
+
+areaData[area]
+.amount+=amount;
+
+
+
+if(!productData[product])
+productData[product]={
+name:product,
+amount:0
+};
+
+productData[product]
+.amount+=amount;
+
+
+
+if(!customerData[customer])
+customerData[customer]={
+name:customer,
+amount:0
+};
+
+customerData[customer]
+.amount+=amount;
+
+
+
+if(!dailyData[date])
+dailyData[date]={
+date:date,
+amount:0
+};
+
+dailyData[date]
+.amount+=amount;
+
+
+});
+
+
+progress(60);
+
+log("Uploading State Data");
+
+await db.ref(
+"/state_data"
+)
+.set(stateData);
+
+log("Uploading Area Data");
+
+await db.ref(
+"/area_data"
+)
+.set(areaData);
+
+log("Uploading Product Data");
+
+await db.ref(
+"/product_data"
+)
+.set(productData);
+
+log("Uploading Customer Data");
+
+await db.ref(
+"/customer_data"
+)
+.set(customerData);
+
+log("Uploading Daily Trend");
+
+await db.ref(
+"/daily_data"
+)
+.set(dailyData);
+
+
+await db.ref(
+"/meta"
+)
+.set({
+
+period_tag:
+"Generic Division",
+
+sap_info:
+"₹"+
+(
+totalSales/100000
+).toFixed(2)+" Lacs",
+
+updated:
+new Date()
+.toString()
+
+});
+
+
+progress(100);
+
+log(
+"<span style='color:#4ade80'>✓ Upload Complete</span>"
+);
+
+}
+
+
+</script>
+
+</body>
+</html>
