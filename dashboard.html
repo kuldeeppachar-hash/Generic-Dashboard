@@ -41,6 +41,10 @@
   .loading{color:var(--cyan);font-size:12px;padding:24px 0;text-align:center;}
   input.search{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;margin-bottom:10px;}
   input.search::placeholder{color:var(--text-dim);}
+  select.search{appearance:none;-webkit-appearance:none;}
+  .drill-cols{display:flex;gap:20px;flex-wrap:wrap;}
+  .drill-col{flex:1;min-width:280px;}
+  .drill-col h3{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
 </style>
 </head>
 <body>
@@ -69,6 +73,19 @@
       <div class="stat-mini"><div class="v" id="statCities">—</div><div class="l">Cities (Area/HQ)</div></div>
       <div class="stat-mini"><div class="v" id="statProducts">—</div><div class="l">Products</div></div>
       <div class="stat-mini"><div class="v" id="statDays">—</div><div class="l">Billing Days</div></div>
+    </div>
+  </div>
+
+  <div class="tile" style="grid-column:span 12;">
+    <div class="tile-head">
+      <div class="tile-title">State Drill-down — HQs &amp; Product Quantity</div>
+      <button class="export-btn" onclick="exportDrilldown()">⬇ Export (xlsx)</button>
+    </div>
+    <select class="search" id="stateSelect" onchange="renderDrilldown(this.value)" style="cursor:pointer;">
+      <option value="">— Select a state —</option>
+    </select>
+    <div id="drilldownArea">
+      <div class="empty">Select a state above to see its HQs/cities and net quantity per product.</div>
     </div>
   </div>
 
@@ -119,7 +136,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
 
-const DATA = { state: [], city: [], product: [], meta: {} };
+const DATA = { state: [], city: [], product: [], meta: {}, drilldown: {} };
 
 function fmt(n){ return Number(n).toLocaleString('en-IN', {maximumFractionDigits:0}); }
 
@@ -184,18 +201,59 @@ window.exportSummary = async function(){
   XLSX.writeFile(wb, `generic_division_sales_summary_${(DATA.meta.period_tag||'export').replace(/\s+/g,'_')}.xlsx`);
 };
 
+window.renderDrilldown = function(stateName){
+  const area = document.getElementById('drilldownArea');
+  if (!stateName){ area.innerHTML = '<div class="empty">Select a state above to see its HQs/cities and net quantity per product.</div>'; return; }
+  const key = Object.keys(DATA.drilldown).find(k => DATA.drilldown[k].state === stateName);
+  const d = key ? DATA.drilldown[key] : null;
+  if (!d){ area.innerHTML = '<div class="empty">No data for this state.</div>'; return; }
+
+  const cityRows = d.cities.map(c => `<tr><td>${c.name}</td><td class="amt">₹${fmt(c.amt)}</td></tr>`).join('');
+  const prodRows = d.products.map(p => `<tr><td>${p.name}</td><td class="amt">${fmt(p.qty)}</td><td class="amt">₹${fmt(p.amt)}</td></tr>`).join('');
+
+  area.innerHTML = `
+    <div class="drill-cols">
+      <div class="drill-col">
+        <h3>HQs / Cities in ${stateName} (${d.cities.length})</h3>
+        <div class="scroll" style="max-height:340px"><table><thead><tr><th>City</th><th style="text-align:right">Net Amount (₹)</th></tr></thead><tbody>${cityRows}</tbody></table></div>
+      </div>
+      <div class="drill-col">
+        <h3>Products in ${stateName} (${d.products.length})</h3>
+        <div class="scroll" style="max-height:340px"><table><thead><tr><th>Product</th><th style="text-align:right">Net Qty</th><th style="text-align:right">Net Amount (₹)</th></tr></thead><tbody>${prodRows}</tbody></table></div>
+      </div>
+    </div>`;
+};
+
+window.exportDrilldown = async function(){
+  const stateName = document.getElementById('stateSelect').value;
+  if (!stateName){ alert('Select a state first.'); return; }
+  await loadXLSX();
+  const key = Object.keys(DATA.drilldown).find(k => DATA.drilldown[k].state === stateName);
+  const d = DATA.drilldown[key];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['City','Net Amount'], ...d.cities.map(c=>[c.name,c.amt])]), 'HQs-Cities');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product','Net Qty','Net Amount'], ...d.products.map(p=>[p.name,p.qty,p.amt])]), 'Products');
+  XLSX.writeFile(wb, `${stateName.replace(/\s+/g,'_')}_drilldown.xlsx`);
+};
+
 async function load(){
   try {
-    const [stateSnap, citySnap, prodSnap, metaSnap] = await Promise.all([
+    const [stateSnap, citySnap, prodSnap, metaSnap, drillSnap] = await Promise.all([
       get(ref(db,'/state_data')),
       get(ref(db,'/city_data')),
       get(ref(db,'/product_data')),
       get(ref(db,'/meta')),
+      get(ref(db,'/state_drilldown')),
     ]);
     DATA.state = toArr(stateSnap.val());
     DATA.city = toArr(citySnap.val());
     DATA.product = toArr(prodSnap.val());
     DATA.meta = metaSnap.val() || {};
+    DATA.drilldown = drillSnap.val() || {};
+
+    const sel = document.getElementById('stateSelect');
+    const states = Object.values(DATA.drilldown).map(d => d.state).sort();
+    sel.innerHTML = '<option value="">— Select a state —</option>' + states.map(s => `<option value="${s}">${s}</option>`).join('');
 
     document.getElementById('periodLine').textContent = DATA.meta.period
       ? `Period: ${DATA.meta.period} · Source: raw SAP export, Division = Generic`

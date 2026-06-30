@@ -157,6 +157,7 @@ window.uploadExcel = async function() {
     }
 
     const stateMap = {}, cityMap = {}, prodMap = {}, dayMap = {};
+    const stateDetail = {}; // { state: { cities:{city:amt}, products:{prod:{qty,amt}} } }
     let total = 0, lineCount = 0, minDate = null, maxDate = null;
 
     genericRows.forEach(r => {
@@ -165,6 +166,7 @@ window.uploadExcel = async function() {
       lineCount++;
       total += amt;
 
+      const qty  = parseFloat(r['Quantity'] || 0) || 0;
       const state = String(r['State']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
       const city  = String(r['City']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
       const prod  = String(r['Product Description']||'Unknown').trim();
@@ -172,6 +174,12 @@ window.uploadExcel = async function() {
       stateMap[state] = (stateMap[state]||0) + amt;
       cityMap[city]   = (cityMap[city]||0) + amt;
       prodMap[prod]   = (prodMap[prod]||0) + amt;
+
+      if (!stateDetail[state]) stateDetail[state] = { cities:{}, products:{} };
+      stateDetail[state].cities[city] = (stateDetail[state].cities[city]||0) + amt;
+      if (!stateDetail[state].products[prod]) stateDetail[state].products[prod] = {qty:0, amt:0};
+      stateDetail[state].products[prod].qty += qty;
+      stateDetail[state].products[prod].amt += amt;
 
       const rawDate = r['Invoice Date'];
       if (rawDate) {
@@ -194,6 +202,16 @@ window.uploadExcel = async function() {
     Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ product_data[`prod_${i}`] = {name, amt: Math.round(amt*100)/100}; });
     Object.entries(dayMap).forEach(([date,amt],i)=>{ daily_data[`day_${i}`] = {date, amt: Math.round(amt*100)/100}; });
 
+    const safeKey = s => s.replace(/[.#$/\[\]]/g, '_');
+    const state_drilldown = {};
+    Object.entries(stateDetail).forEach(([state, detail]) => {
+      const cities = Object.entries(detail.cities).sort((a,b)=>b[1]-a[1])
+        .map(([name,amt]) => ({name, amt: Math.round(amt*100)/100}));
+      const products = Object.entries(detail.products).sort((a,b)=>b[1].amt-a[1].amt)
+        .map(([name,v]) => ({name, qty: Math.round(v.qty*100)/100, amt: Math.round(v.amt*100)/100}));
+      state_drilldown[safeKey(state)] = { state, cities, products };
+    });
+
     const meta = {
       division: 'Generic',
       total_net_sales: Math.round(total*100)/100,
@@ -212,6 +230,7 @@ window.uploadExcel = async function() {
       set(ref(db,'/city_data'), city_data),
       set(ref(db,'/product_data'), product_data),
       set(ref(db,'/daily_data'), daily_data),
+      set(ref(db,'/state_drilldown'), state_drilldown),
       set(ref(db,'/meta'), meta),
     ]);
     prog(100);
