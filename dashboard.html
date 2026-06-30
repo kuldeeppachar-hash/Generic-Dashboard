@@ -41,7 +41,20 @@
   .loading{color:var(--cyan);font-size:12px;padding:24px 0;text-align:center;}
   input.search{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 10px;font-family:'JetBrains Mono',monospace;font-size:11px;margin-bottom:10px;}
   input.search::placeholder{color:var(--text-dim);}
-  select.search{appearance:none;-webkit-appearance:none;}
+  .custom-select{position:relative;margin-bottom:10px;}
+  .cs-trigger{width:100%;background:#020609;border:1px solid var(--border);border-radius:8px;color:var(--text);padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;transition:border-color .15s;}
+  .cs-trigger:hover,.cs-trigger.open{border-color:var(--cyan);}
+  .cs-trigger .cs-arrow{color:var(--text-dim);font-size:10px;transition:transform .15s;}
+  .cs-trigger.open .cs-arrow{transform:rotate(180deg);color:var(--cyan);}
+  .cs-menu{display:none;position:absolute;top:calc(100% + 6px);left:0;right:0;background:#0a1018;border:1px solid var(--border);border-radius:10px;max-height:280px;overflow-y:auto;z-index:20;box-shadow:0 12px 30px rgba(0,0,0,0.5);}
+  .cs-menu.open{display:block;}
+  .cs-option{padding:10px 14px;font-size:11px;color:var(--text);cursor:pointer;border-bottom:1px solid rgba(56,189,248,0.06);}
+  .cs-option:last-child{border-bottom:none;}
+  .cs-option:hover{background:rgba(56,189,248,0.08);color:var(--cyan);}
+  .cs-option.selected{color:var(--green);}
+  .drill-total{display:flex;gap:28px;align-items:baseline;margin-bottom:14px;flex-wrap:wrap;}
+  .drill-total .v{font-size:26px;color:var(--green);font-weight:700;}
+  .drill-total .l{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;}
   .drill-cols{display:flex;gap:20px;flex-wrap:wrap;}
   .drill-col{flex:1;min-width:280px;}
   .drill-col h3{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
@@ -81,9 +94,13 @@
       <div class="tile-title">State Drill-down — HQs &amp; Product Quantity</div>
       <button class="export-btn" onclick="exportDrilldown()">⬇ Export (xlsx)</button>
     </div>
-    <select class="search" id="stateSelect" onchange="renderDrilldown(this.value)" style="cursor:pointer;">
-      <option value="">— Select a state —</option>
-    </select>
+    <div class="custom-select" id="stateSelectWrap">
+      <button type="button" class="cs-trigger" id="csTrigger" onclick="toggleDropdown()">
+        <span id="csLabel">— Select a state —</span>
+        <span class="cs-arrow">▾</span>
+      </button>
+      <div class="cs-menu" id="csMenu"></div>
+    </div>
     <div id="drilldownArea">
       <div class="empty">Select a state above to see its HQs/cities and net quantity per product.</div>
     </div>
@@ -201,6 +218,30 @@ window.exportSummary = async function(){
   XLSX.writeFile(wb, `generic_division_sales_summary_${(DATA.meta.period_tag||'export').replace(/\s+/g,'_')}.xlsx`);
 };
 
+let selectedState = '';
+
+window.toggleDropdown = function(){
+  document.getElementById('csTrigger').classList.toggle('open');
+  document.getElementById('csMenu').classList.toggle('open');
+};
+
+document.addEventListener('click', (e) => {
+  const wrap = document.getElementById('stateSelectWrap');
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById('csTrigger').classList.remove('open');
+    document.getElementById('csMenu').classList.remove('open');
+  }
+});
+
+window.selectState = function(stateName){
+  selectedState = stateName;
+  document.getElementById('csLabel').textContent = stateName;
+  document.querySelectorAll('.cs-option').forEach(o => o.classList.toggle('selected', o.dataset.state === stateName));
+  document.getElementById('csTrigger').classList.remove('open');
+  document.getElementById('csMenu').classList.remove('open');
+  renderDrilldown(stateName);
+};
+
 window.renderDrilldown = function(stateName){
   const area = document.getElementById('drilldownArea');
   if (!stateName){ area.innerHTML = '<div class="empty">Select a state above to see its HQs/cities and net quantity per product.</div>'; return; }
@@ -210,8 +251,16 @@ window.renderDrilldown = function(stateName){
 
   const cityRows = d.cities.map(c => `<tr><td>${c.name}</td><td class="amt">₹${fmt(c.amt)}</td></tr>`).join('');
   const prodRows = d.products.map(p => `<tr><td>${p.name}</td><td class="amt">${fmt(p.qty)}</td><td class="amt">₹${fmt(p.amt)}</td></tr>`).join('');
+  const stateTotal = d.cities.reduce((s,c)=>s+c.amt, 0);
+  const totalQty = d.products.reduce((s,p)=>s+p.qty, 0);
 
   area.innerHTML = `
+    <div class="drill-total">
+      <div><div class="v">₹${fmt(stateTotal)}</div><div class="l">Total Net Sales — ${stateName}</div></div>
+      <div><div class="v" style="color:var(--cyan)">${fmt(totalQty)}</div><div class="l">Total Units Sold</div></div>
+      <div><div class="v" style="color:var(--text);font-size:18px">${d.cities.length}</div><div class="l">HQs / Cities</div></div>
+      <div><div class="v" style="color:var(--text);font-size:18px">${d.products.length}</div><div class="l">Products</div></div>
+    </div>
     <div class="drill-cols">
       <div class="drill-col">
         <h3>HQs / Cities in ${stateName} (${d.cities.length})</h3>
@@ -225,7 +274,7 @@ window.renderDrilldown = function(stateName){
 };
 
 window.exportDrilldown = async function(){
-  const stateName = document.getElementById('stateSelect').value;
+  const stateName = selectedState;
   if (!stateName){ alert('Select a state first.'); return; }
   await loadXLSX();
   const key = Object.keys(DATA.drilldown).find(k => DATA.drilldown[k].state === stateName);
@@ -251,9 +300,9 @@ async function load(){
     DATA.meta = metaSnap.val() || {};
     DATA.drilldown = drillSnap.val() || {};
 
-    const sel = document.getElementById('stateSelect');
     const states = Object.values(DATA.drilldown).map(d => d.state).sort();
-    sel.innerHTML = '<option value="">— Select a state —</option>' + states.map(s => `<option value="${s}">${s}</option>`).join('');
+    const menu = document.getElementById('csMenu');
+    menu.innerHTML = states.map(s => `<div class="cs-option" data-state="${s}" onclick="selectState('${s.replace(/'/g,"\\'")}')">${s}</div>`).join('');
 
     document.getElementById('periodLine').textContent = DATA.meta.period
       ? `Period: ${DATA.meta.period} · Source: raw SAP export, Division = Generic`
