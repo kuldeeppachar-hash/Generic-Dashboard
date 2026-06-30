@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Generic Division — Admin Login</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{--bg:#060a12;--surface:#0d1520;--border:rgba(56,189,248,0.15);--cyan:#38bdf8;--green:#4ade80;--red:#f87171;--text:#e2e8f0;--text-dim:#64748b;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+  .box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;max-width:380px;width:100%;}
+  h1{font-size:17px;color:var(--cyan);margin-bottom:6px;}
+  .sub{color:var(--text-dim);font-size:11px;margin-bottom:24px;}
+  label{display:block;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;margin-top:14px;}
+  input{width:100%;background:#020609;border:1px solid var(--border);border-radius:8px;color:var(--text);padding:11px 12px;font-family:'JetBrains Mono',monospace;font-size:13px;}
+  input:focus{outline:none;border-color:var(--cyan);}
+  button{width:100%;padding:13px;border-radius:10px;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;margin-top:20px;background:linear-gradient(135deg,#38bdf8,#818cf8);color:#000;}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .err{color:var(--red);font-size:11px;margin-top:12px;min-height:14px;}
+</style>
+</head>
+<body>
+<div class="box">
+  <h1>🔒 Admin Login</h1>
+  <div class="sub">Generic Division dashboard — upload &amp; admin access only.<br>Dashboard itself stays public, no login needed there.</div>
+  <form id="loginForm">
+    <label>Email</label>
+    <input type="email" id="email" required autocomplete="username">
+    <label>Password</label>
+    <input type="password" id="password" required autocomplete="current-password">
+    <button type="submit" id="btn">SIGN IN</button>
+    <div class="err" id="err"></div>
+  </form>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCpleadoQKQStNOjk-Tq9Yqy6uGLVpdKi8",
+  authDomain: "generic-dashboard-b0355.firebaseapp.com",
+  databaseURL: "https://generic-dashboard-b0355-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "generic-dashboard-b0355",
+  storageBucket: "generic-dashboard-b0355.firebasestorage.app",
+  messagingSenderId: "180109315889",
+  appId: "1:180109315889:web:9d91bc775c06ace2a7ea10",
+  measurementId: "G-4LM4R78GRN"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+// already signed in -> skip straight to admin
+onAuthStateChanged(auth, (user) => {
+  if (user) window.location.href = 'admin.html';
+});
+
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = document.getElementById('btn');
+  const err = document.getElementById('err');
+  err.textContent = '';
+  btn.disabled = true;
+  btn.textContent = 'SIGNING IN...';
+  const email = document.getElementById('email').value.trim();
+  const password = document.getElementById('password').value;
+  try {
+    await signInWithEmailAndPassword(auth, email, password);
+    window.location.href = 'admin.html';
+  } catch (e2) {
+    err.textContent = 'Login failed: ' + (e2.code || e2.message);
+    btn.disabled = false;
+    btn.textContent = 'SIGN IN';
+  }
+});
+</script>
+</body>
+</html>

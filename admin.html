@@ -1,311 +1,87 @@
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-
 <meta charset="UTF-8">
-<title>Generic Dashboard Admin</title>
-
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-
-<script src="firebaseConfig.js"></script>
-
+<title>Generic Division — Admin</title>
 <style>
-
-body{
-background:#07121d;
-font-family:Arial;
-color:white;
-padding:30px;
-margin:0;
-}
-
-.container{
-max-width:1200px;
-margin:auto;
-}
-
-h1{
-color:#38bdf8;
-}
-
-.box{
-background:#111c2e;
-padding:20px;
-border-radius:15px;
-margin-bottom:20px;
-}
-
-button{
-
-padding:12px 20px;
-border:none;
-border-radius:8px;
-cursor:pointer;
-font-weight:bold;
-margin-right:10px;
-
-}
-
-.primary{
-background:#38bdf8;
-}
-
-.red{
-background:#ef4444;
-color:white;
-}
-
-.green{
-background:#22c55e;
-}
-
-table{
-width:100%;
-border-collapse:collapse;
-}
-
-th,td{
-padding:12px;
-border-bottom:1px solid #333;
-}
-
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
+  :root{--bg:#060a12;--surface:#0d1520;--border:rgba(56,189,248,0.15);--cyan:#38bdf8;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--text:#e2e8f0;--text-dim:#64748b;}
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 20px;}
+  .box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px;max-width:520px;width:100%;}
+  h1{font-size:18px;color:var(--cyan);margin-bottom:6px;}
+  .sub{color:var(--text-dim);font-size:11px;margin-bottom:26px;}
+  .who{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin-bottom:20px;}
+  .who .email{color:var(--green);font-size:12px;}
+  .logout{background:transparent;border:1px solid var(--border);color:var(--text-dim);padding:6px 12px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;}
+  .logout:hover{border-color:var(--red);color:var(--red);}
+  .card{display:block;border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:12px;text-decoration:none;color:var(--text);transition:all .15s;}
+  .card:hover{border-color:var(--cyan);background:rgba(56,189,248,0.04);}
+  .card .t{color:var(--amber);font-size:12px;letter-spacing:0.4px;margin-bottom:4px;}
+  .card .d{color:var(--text-dim);font-size:11px;}
+  .note{background:#020609;border:1px solid var(--border);border-radius:8px;padding:14px;margin-top:20px;font-size:10.5px;color:var(--text-dim);line-height:1.7;}
+  .note b{color:var(--text);}
 </style>
-
 </head>
-
 <body>
+<div class="box" id="app" style="display:none">
+  <h1>⚙ Admin</h1>
+  <div class="sub">Generic Division — Sales Dashboard</div>
 
-<div class="container">
+  <div class="who">
+    <span>Signed in as <span class="email" id="userEmail">—</span></span>
+    <button class="logout" onclick="doLogout()">LOG OUT</button>
+  </div>
 
-<h1>
-⚙ Generic Dashboard Admin
-</h1>
+  <a class="card" href="upload_to_firebase.html">
+    <div class="t">⬆ UPLOAD SAP DATA</div>
+    <div class="d">Process the monthly SAP export and push to Firebase. Overwrites the live dashboard data.</div>
+  </a>
 
+  <a class="card" href="dashboard.html">
+    <div class="t">📊 VIEW DASHBOARD</div>
+    <div class="d">Public dashboard — no login required to view, only to upload.</div>
+  </a>
 
-<div class="box">
-
-<h3>Database Summary</h3>
-
-<p id="totalState">States : 0</p>
-
-<p id="totalArea">Areas : 0</p>
-
-<p id="totalProducts">Products : 0</p>
-
-<p id="totalCustomers">Customers : 0</p>
-
-<p id="lastUpdated">Last Upload : -</p>
-
+  <div class="note">
+    <b>Managing admin users:</b> this page only handles sign-in. To add or remove who can log in, go to Firebase Console → Authentication → Users, and add accounts there directly (Email/Password provider). There's no self-signup here on purpose.
+  </div>
 </div>
 
+<div id="loading" style="color:var(--text-dim)">Checking session...</div>
 
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
-<div class="box">
+const firebaseConfig = {
+  apiKey: "AIzaSyCpleadoQKQStNOjk-Tq9Yqy6uGLVpdKi8",
+  authDomain: "generic-dashboard-b0355.firebaseapp.com",
+  databaseURL: "https://generic-dashboard-b0355-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "generic-dashboard-b0355",
+  storageBucket: "generic-dashboard-b0355.firebasestorage.app",
+  messagingSenderId: "180109315889",
+  appId: "1:180109315889:web:9d91bc775c06ace2a7ea10",
+  measurementId: "G-4LM4R78GRN"
+};
 
-<h3>Actions</h3>
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
 
-<button
-class="primary"
-onclick="window.location='upload_to_firebase.html'">
-
-Upload New SAP File
-
-</button>
-
-
-<button
-class="red"
-onclick="clearDatabase()">
-
-Clear Database
-
-</button>
-
-</div>
-
-
-
-
-<div class="box">
-
-<h3>Upload History</h3>
-
-<table>
-
-<thead>
-
-<tr>
-
-<th>Date</th>
-<th>Total Sales</th>
-<th>Rows</th>
-
-</tr>
-
-</thead>
-
-<tbody id="history">
-
-</tbody>
-
-</table>
-
-</div>
-
-
-</div>
-
-<script>
-
-
-async function loadAdmin(){
-
-const snap=
-await db.ref()
-.once("value");
-
-const data=
-snap.val();
-
-
-document
-.getElementById(
-"totalState"
-)
-.innerHTML=
-"States : "+
-Object.keys(
-data.state_data||{}
-).length;
-
-
-document
-.getElementById(
-"totalArea"
-)
-.innerHTML=
-"Areas : "+
-Object.keys(
-data.area_data||{}
-).length;
-
-
-
-document
-.getElementById(
-"totalProducts"
-)
-.innerHTML=
-"Products : "+
-Object.keys(
-data.product_data||{}
-).length;
-
-
-
-document
-.getElementById(
-"totalCustomers"
-)
-.innerHTML=
-"Customers : "+
-Object.keys(
-data.customer_data||{}
-).length;
-
-
-document
-.getElementById(
-"lastUpdated"
-)
-.innerHTML=
-"Last Upload : "+
-(
-data.meta?.updated||"-"
-);
-
-
-loadHistory(
-data.upload_history||{}
-);
-
-
-}
-
-
-
-function loadHistory(data){
-
-let html="";
-
-Object.values(data)
-.reverse()
-.forEach(x=>{
-
-html+=`
-
-<tr>
-
-<td>${x.date}</td>
-
-<td>${x.sales}</td>
-
-<td>${x.rows}</td>
-
-</tr>
-
-`;
-
+onAuthStateChanged(auth, (user) => {
+  if (!user) {
+    window.location.href = 'login.html';
+    return;
+  }
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('userEmail').textContent = user.email;
 });
 
-document
-.getElementById(
-"history"
-)
-.innerHTML=
-html;
-
-}
-
-
-
-async function clearDatabase(){
-
-let confirmDelete=
-confirm(
-"Delete all dashboard data?"
-);
-
-if(!confirmDelete)
-return;
-
-
-await db.ref().set({
-
-meta:{
-updated:
-new Date()
-.toString()
-}
-
-});
-
-
-alert(
-"Database cleared"
-);
-
-location.reload();
-
-}
-
-
-loadAdmin();
-
+window.doLogout = async function() {
+  await signOut(auth);
+  window.location.href = 'login.html';
+};
 </script>
-
 </body>
-
 </html>
