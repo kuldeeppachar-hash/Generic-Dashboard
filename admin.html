@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+<title>Generic Dashboard Admin</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+
+<script src="firebaseConfig.js"></script>
+
+<style>
+
+body{
+background:#07121d;
+font-family:Arial;
+color:white;
+padding:30px;
+margin:0;
+}
+
+.container{
+max-width:1200px;
+margin:auto;
+}
+
+h1{
+color:#38bdf8;
+}
+
+.box{
+background:#111c2e;
+padding:20px;
+border-radius:15px;
+margin-bottom:20px;
+}
+
+button{
+
+padding:12px 20px;
+border:none;
+border-radius:8px;
+cursor:pointer;
+font-weight:bold;
+margin-right:10px;
+
+}
+
+.primary{
+background:#38bdf8;
+}
+
+.red{
+background:#ef4444;
+color:white;
+}
+
+.green{
+background:#22c55e;
+}
+
+table{
+width:100%;
+border-collapse:collapse;
+}
+
+th,td{
+padding:12px;
+border-bottom:1px solid #333;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>
+⚙ Generic Dashboard Admin
+</h1>
+
+
+<div class="box">
+
+<h3>Database Summary</h3>
+
+<p id="totalState">States : 0</p>
+
+<p id="totalArea">Areas : 0</p>
+
+<p id="totalProducts">Products : 0</p>
+
+<p id="totalCustomers">Customers : 0</p>
+
+<p id="lastUpdated">Last Upload : -</p>
+
+</div>
+
+
+
+<div class="box">
+
+<h3>Actions</h3>
+
+<button
+class="primary"
+onclick="window.location='upload_to_firebase.html'">
+
+Upload New SAP File
+
+</button>
+
+
+<button
+class="red"
+onclick="clearDatabase()">
+
+Clear Database
+
+</button>
+
+</div>
+
+
+
+
+<div class="box">
+
+<h3>Upload History</h3>
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>Date</th>
+<th>Total Sales</th>
+<th>Rows</th>
+
+</tr>
+
+</thead>
+
+<tbody id="history">
+
+</tbody>
+
+</table>
+
+</div>
+
+
+</div>
+
+<script>
+
+
+async function loadAdmin(){
+
+const snap=
+await db.ref()
+.once("value");
+
+const data=
+snap.val();
+
+
+document
+.getElementById(
+"totalState"
+)
+.innerHTML=
+"States : "+
+Object.keys(
+data.state_data||{}
+).length;
+
+
+document
+.getElementById(
+"totalArea"
+)
+.innerHTML=
+"Areas : "+
+Object.keys(
+data.area_data||{}
+).length;
+
+
+
+document
+.getElementById(
+"totalProducts"
+)
+.innerHTML=
+"Products : "+
+Object.keys(
+data.product_data||{}
+).length;
+
+
+
+document
+.getElementById(
+"totalCustomers"
+)
+.innerHTML=
+"Customers : "+
+Object.keys(
+data.customer_data||{}
+).length;
+
+
+document
+.getElementById(
+"lastUpdated"
+)
+.innerHTML=
+"Last Upload : "+
+(
+data.meta?.updated||"-"
+);
+
+
+loadHistory(
+data.upload_history||{}
+);
+
+
+}
+
+
+
+function loadHistory(data){
+
+let html="";
+
+Object.values(data)
+.reverse()
+.forEach(x=>{
+
+html+=`
+
+<tr>
+
+<td>${x.date}</td>
+
+<td>${x.sales}</td>
+
+<td>${x.rows}</td>
+
+</tr>
+
+`;
+
+});
+
+document
+.getElementById(
+"history"
+)
+.innerHTML=
+html;
+
+}
+
+
+
+async function clearDatabase(){
+
+let confirmDelete=
+confirm(
+"Delete all dashboard data?"
+);
+
+if(!confirmDelete)
+return;
+
+
+await db.ref().set({
+
+meta:{
+updated:
+new Date()
+.toString()
+}
+
+});
+
+
+alert(
+"Database cleared"
+);
+
+location.reload();
+
+}
+
+
+loadAdmin();
+
+</script>
+
+</body>
+
+</html>
