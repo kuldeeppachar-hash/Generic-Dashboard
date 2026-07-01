@@ -58,6 +58,17 @@
   .drill-cols{display:flex;gap:20px;flex-wrap:wrap;}
   .drill-col{flex:1;min-width:280px;}
   .drill-col h3{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;}
+  .month-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:18px;max-width:1320px;margin-left:auto;margin-right:auto;}
+  .month-tab{padding:8px 16px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:var(--surface);transition:all .15s;}
+  .month-tab:hover{border-color:var(--cyan);color:var(--cyan);}
+  .month-tab.active{border-color:var(--green);color:var(--green);background:rgba(74,222,128,0.08);}
+  .cmp-row{display:grid;grid-template-columns:120px 1fr 140px 90px;align-items:center;gap:12px;padding:8px 0;border-bottom:1px solid rgba(56,189,248,0.06);font-size:11px;}
+  .cmp-row:last-child{border-bottom:none;}
+  .cmp-month{color:var(--text);}
+  .cmp-delta{text-align:right;font-variant-numeric:tabular-nums;}
+  .cmp-delta.up{color:var(--green);}
+  .cmp-delta.down{color:var(--red);}
+  .cmp-delta.flat{color:var(--text-dim);}
 </style>
 </head>
 <body>
@@ -70,11 +81,21 @@
   <a href="upload_to_firebase.html" class="link-btn">⬆ Upload New Data</a>
 </header>
 
+<div class="month-tabs" id="monthTabs"></div>
+
 <div class="grid">
 
   <div class="tile tile-hero">
     <div class="tile-head">
-      <div class="tile-title">Total Net Sales</div>
+      <div class="tile-title">Month-on-Month Comparison</div>
+      <button class="export-btn" onclick="exportComparison()">⬇ Export (xlsx)</button>
+    </div>
+    <div id="comparisonArea"><div class="empty">Loading months...</div></div>
+  </div>
+
+  <div class="tile tile-hero">
+    <div class="tile-head">
+      <div class="tile-title">Total Net Sales — <span id="selMonthLabel">—</span></div>
       <button class="export-btn" onclick="exportSummary()">⬇ Export Summary (xlsx)</button>
     </div>
     <div class="hero-stats">
@@ -152,6 +173,10 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
+
+const MONTHS = {};      // monthKey -> raw month node from Firebase
+let monthOrder = [];    // sorted monthKeys, oldest -> newest
+let selectedMonth = ''; // currently displayed month key
 
 const DATA = { state: [], city: [], product: [], meta: {}, drilldown: {} };
 
@@ -285,39 +310,109 @@ window.exportDrilldown = async function(){
   XLSX.writeFile(wb, `${stateName.replace(/\s+/g,'_')}_drilldown.xlsx`);
 };
 
+function monthKeyLabel(key){
+  const [y,m] = key.split('-').map(Number);
+  return new Date(y, m-1, 1).toLocaleDateString('en-IN',{month:'short',year:'numeric'});
+}
+
+function renderMonthTabs(){
+  const wrap = document.getElementById('monthTabs');
+  wrap.innerHTML = monthOrder.map(k => {
+    const label = (MONTHS[k].meta && MONTHS[k].meta.month_label) || monthKeyLabel(k);
+    return `<button class="month-tab ${k===selectedMonth?'active':''}" onclick="selectMonth('${k}')">${label}</button>`;
+  }).join('');
+}
+
+window.selectMonth = function(key){
+  selectedMonth = key;
+  const m = MONTHS[key] || {};
+  DATA.state = toArr(m.state_data);
+  DATA.city = toArr(m.city_data);
+  DATA.product = toArr(m.product_data);
+  DATA.meta = m.meta || {};
+  DATA.drilldown = m.state_drilldown || {};
+
+  const states = Object.values(DATA.drilldown).map(d => d.state).sort();
+  const menu = document.getElementById('csMenu');
+  menu.innerHTML = states.map(s => `<div class="cs-option" data-state="${s}" onclick="selectState('${s.replace(/'/g,"\\'")}')">${s}</div>`).join('');
+  selectedState = '';
+  document.getElementById('csLabel').textContent = '— Select a state —';
+  renderDrilldown('');
+
+  document.getElementById('periodLine').textContent = DATA.meta.period
+    ? `Period: ${DATA.meta.period} · Source: raw SAP export, Division = Generic`
+    : 'No data for this month yet';
+  document.getElementById('selMonthLabel').textContent = (DATA.meta.month_label) || monthKeyLabel(key);
+
+  document.getElementById('totalSales').textContent = DATA.meta.total_net_sales != null ? '₹' + fmt(DATA.meta.total_net_sales) : '—';
+  document.getElementById('totalSalesSub').textContent = DATA.meta.sap_info || 'across all billing lines';
+  document.getElementById('statStates').textContent = DATA.state.length;
+  document.getElementById('statCities').textContent = DATA.city.length;
+  document.getElementById('statProducts').textContent = DATA.product.length;
+  document.getElementById('statDays').textContent = DATA.meta.billing_days ?? '—';
+
+  renderTable('state');
+  renderTable('city');
+  renderTable('product');
+  renderMonthTabs();
+};
+
+function renderComparison(){
+  const area = document.getElementById('comparisonArea');
+  if (!monthOrder.length){ area.innerHTML = '<div class="empty">No months uploaded yet.</div>'; return; }
+  const totals = monthOrder.map(k => ({
+    key: k,
+    label: (MONTHS[k].meta && MONTHS[k].meta.month_label) || monthKeyLabel(k),
+    amt: (MONTHS[k].meta && MONTHS[k].meta.total_net_sales) || 0,
+  }));
+  const max = Math.max(...totals.map(t=>t.amt), 1);
+  area.innerHTML = totals.map((t,i) => {
+    const prev = i>0 ? totals[i-1].amt : null;
+    let deltaHtml = '<span class="cmp-delta flat">first month</span>';
+    if (prev != null) {
+      const pct = prev ? ((t.amt-prev)/prev*100) : 0;
+      const cls = pct > 0.05 ? 'up' : pct < -0.05 ? 'down' : 'flat';
+      const arrow = pct > 0.05 ? '▲' : pct < -0.05 ? '▼' : '—';
+      deltaHtml = `<span class="cmp-delta ${cls}">${arrow} ${Math.abs(pct).toFixed(1)}% vs ${totals[i-1].label}</span>`;
+    }
+    return `<div class="cmp-row">
+      <div class="cmp-month">${t.label}</div>
+      <div class="bar-row"><div class="bar-track"><div class="bar-fill" style="width:${Math.max(2,(t.amt/max*100)).toFixed(1)}%"></div></div></div>
+      <div class="amt">₹${fmt(t.amt)}</div>
+      ${deltaHtml}
+    </div>`;
+  }).join('');
+}
+
+window.exportComparison = async function(){
+  await loadXLSX();
+  const rows = monthOrder.map(k => [
+    (MONTHS[k].meta && MONTHS[k].meta.month_label) || monthKeyLabel(k),
+    (MONTHS[k].meta && MONTHS[k].meta.total_net_sales) || 0,
+    (MONTHS[k].meta && MONTHS[k].meta.billing_days) || 0,
+  ]);
+  const aoa = [['Month','Total Net Sales (INR)','Billing Days'], ...rows];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Month Comparison');
+  XLSX.writeFile(wb, 'generic_division_month_comparison.xlsx');
+};
+
 async function load(){
   try {
-    const [stateSnap, citySnap, prodSnap, metaSnap, drillSnap] = await Promise.all([
-      get(ref(db,'/state_data')),
-      get(ref(db,'/city_data')),
-      get(ref(db,'/product_data')),
-      get(ref(db,'/meta')),
-      get(ref(db,'/state_drilldown')),
-    ]);
-    DATA.state = toArr(stateSnap.val());
-    DATA.city = toArr(citySnap.val());
-    DATA.product = toArr(prodSnap.val());
-    DATA.meta = metaSnap.val() || {};
-    DATA.drilldown = drillSnap.val() || {};
+    const monthsSnap = await get(ref(db, '/months'));
+    const monthsVal = monthsSnap.val() || {};
+    monthOrder = Object.keys(monthsVal).sort(); // 'YYYY-MM' sorts chronologically as a string
+    monthOrder.forEach(k => MONTHS[k] = monthsVal[k]);
 
-    const states = Object.values(DATA.drilldown).map(d => d.state).sort();
-    const menu = document.getElementById('csMenu');
-    menu.innerHTML = states.map(s => `<div class="cs-option" data-state="${s}" onclick="selectState('${s.replace(/'/g,"\\'")}')">${s}</div>`).join('');
+    renderComparison();
 
-    document.getElementById('periodLine').textContent = DATA.meta.period
-      ? `Period: ${DATA.meta.period} · Source: raw SAP export, Division = Generic`
-      : 'No data uploaded yet — go to Upload New Data';
+    if (!monthOrder.length) {
+      document.getElementById('periodLine').textContent = 'No data uploaded yet — go to Upload New Data';
+      document.getElementById('monthTabs').innerHTML = '';
+      return;
+    }
 
-    document.getElementById('totalSales').textContent = DATA.meta.total_net_sales != null ? '₹' + fmt(DATA.meta.total_net_sales) : '—';
-    document.getElementById('totalSalesSub').textContent = DATA.meta.sap_info || 'across all billing lines';
-    document.getElementById('statStates').textContent = DATA.state.length;
-    document.getElementById('statCities').textContent = DATA.city.length;
-    document.getElementById('statProducts').textContent = DATA.product.length;
-    document.getElementById('statDays').textContent = DATA.meta.billing_days ?? '—';
-
-    renderTable('state');
-    renderTable('city');
-    renderTable('product');
+    selectMonth(monthOrder[monthOrder.length - 1]); // default to most recent month
   } catch(e) {
     document.getElementById('periodLine').textContent = 'Error loading data: ' + e.message;
     console.error(e);

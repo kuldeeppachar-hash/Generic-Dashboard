@@ -45,10 +45,18 @@
   <div class="step">
     <div class="step-title">// SOURCE OF TRUTH</div>
     <div class="step-body">
-      This tool reads <b>only</b> the raw SAP export Excel — nothing else feeds this dashboard.<br>
-      It filters rows to <b>Division Name = "Generic"</b> and ignores every other division.<br>
-      <b>Columns used:</b> Division Name, State, City, Product Description, Net Amount, Invoice Date.<br>
-      <b>Note:</b> the export has no real HQ/Area column (Sale Offc. Desc. is blank), so "Area/HQ" below is built from <b>City</b> instead. If your SAP team starts populating Sale Offc. Desc., tell me and I'll switch the grouping to that.
+      This tool reads <b>only</b> the raw SAP-derived export Excel — nothing else feeds this dashboard.<br>
+      It auto-detects the data sheet (some exports have blank scratch sheets before the real one) and the column format, then filters to the <b>Generic</b> division only.<br>
+      Two export formats are supported: SAP direct export (<code>Division Name</code> = "Generic"), and distributor-type export (<code>Distribtor Type</code> = "Generic Distributors" <b>and</b> <code>Product type</code> = "Other-Generic"). "City" is read from <code>City</code> or <code>Head Quarter</code>, whichever the file has.
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-title">// MONTH-BY-MONTH STORAGE</div>
+    <div class="step-body">
+      Each upload is detected by its <b>Invoice Date</b> and saved under its own month — it no longer overwrites other months.<br>
+      Re-uploading a file for a month you've already uploaded will <b>overwrite that month only</b> (useful for corrections); everything else stays untouched.<br>
+      The dashboard reads all months and lets you compare them side by side.
     </div>
   </div>
 
@@ -143,17 +151,59 @@ window.uploadExcel = async function() {
   try {
     const buf = await file.arrayBuffer();
     const wb  = XLSX.read(buf, {cellDates:true});
-    const ws  = wb.Sheets[wb.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(ws, {defval:''});
-    log(`✓ Loaded ${rows.length} rows from Excel`, 'ok');
+
+    // Pick the sheet that actually has tabular data — some exports carry
+    // blank scratch sheets before the real data sheet, so "first sheet"
+    // isn't reliable. Choose the sheet with the most rows.
+    let bestSheetName = wb.SheetNames[0], bestRowCount = -1;
+    for (const name of wb.SheetNames) {
+      const s = wb.Sheets[name];
+      const ref = s['!ref'];
+      const rc = ref ? (XLSX.utils.decode_range(ref).e.r + 1) : 0;
+      if (rc > bestRowCount) { bestRowCount = rc; bestSheetName = name; }
+    }
+    const ws = wb.Sheets[bestSheetName];
+    const rawRows = XLSX.utils.sheet_to_json(ws, {defval:''});
+    log(`✓ Loaded ${rawRows.length} rows from sheet "${bestSheetName}" (of ${wb.SheetNames.length} sheets)`, 'ok');
+    prog(10);
+
+    if (!rawRows.length) throw new Error(`Sheet "${bestSheetName}" appears to have no data rows.`);
+
+    // Two known export schemas feed this dashboard:
+    //  A) SAP direct export — has "Division Name", "City", "Invoice Date"
+    //  B) Distributor-type export — has "Distribtor Type", "Product type",
+    //     "Head Quarter" (used as City), "Invoce Date" (typo in source)
+    const sample = rawRows[0];
+    const isSchemaA = Object.prototype.hasOwnProperty.call(sample, 'Division Name');
+    const isSchemaB = Object.prototype.hasOwnProperty.call(sample, 'Distribtor Type') || Object.prototype.hasOwnProperty.call(sample, 'Product type');
+
+    let rows, schemaLabel;
+    if (isSchemaA) {
+      schemaLabel = 'SAP direct export (Division Name)';
+      rows = rawRows.map(r => ({
+        State: r['State'], City: r['City'], 'Product Description': r['Product Description'],
+        'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoice Date'],
+        _isGeneric: String(r['Division Name']||'').trim() === 'Generic',
+      }));
+    } else if (isSchemaB) {
+      schemaLabel = 'Distributor-type export (Distribtor Type / Product type)';
+      rows = rawRows.map(r => ({
+        State: r['State'], City: r['Head Quarter'], 'Product Description': r['Product Description'],
+        'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoce Date'] || r['Invoice Date'],
+        _isGeneric: String(r['Distribtor Type']||'').trim() === 'Generic Distributors' && String(r['Product type']||'').trim() === 'Other-Generic',
+      }));
+    } else {
+      throw new Error('Could not recognize this file\'s columns. Expected either "Division Name" or "Distribtor Type"/"Product type" columns. Check this is a SAP sales export.');
+    }
+    log(`✓ Detected format: ${schemaLabel}`, 'ok');
     prog(15);
 
-    const genericRows = rows.filter(r => String(r['Division Name']||'').trim() === 'Generic');
-    log(`✓ Filtered to Division = "Generic": ${genericRows.length} rows (dropped ${rows.length - genericRows.length} from other divisions)`, 'ok');
+    const genericRows = rows.filter(r => r._isGeneric);
+    log(`✓ Filtered to Generic division: ${genericRows.length} rows (dropped ${rows.length - genericRows.length} from other divisions)`, 'ok');
     prog(25);
 
     if (genericRows.length === 0) {
-      throw new Error('No rows found with Division Name = "Generic". Check the file is the correct SAP export.');
+      throw new Error('No rows found for the Generic division after filtering. Check this is the correct export.');
     }
 
     const stateMap = {}, cityMap = {}, prodMap = {}, dayMap = {};
@@ -194,6 +244,31 @@ window.uploadExcel = async function() {
     });
 
     log(`✓ Aggregated: ₹${(total/100000).toFixed(2)}L across ${lineCount} lines`, 'ok');
+    prog(40);
+
+    // Determine which calendar month this file belongs to, by summing amounts
+    // per month and picking the month with the most billing (handles files that
+    // spill a few stray rows into an adjacent month).
+    const monthTally = {};
+    genericRows.forEach(r => {
+      const amt = parseFloat(r['Net Amount'] || 0);
+      if (!amt) return;
+      const rawDate = r['Invoice Date'];
+      if (!rawDate) return;
+      let d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+      if (isNaN(d)) return;
+      const mKey = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      monthTally[mKey] = (monthTally[mKey]||0) + amt;
+    });
+    const monthKeys = Object.entries(monthTally).sort((a,b)=>b[1]-a[1]);
+    if (!monthKeys.length) throw new Error('Could not detect a valid Invoice Date on any row — cannot determine which month this file belongs to.');
+    const monthKey = monthKeys[0][0];
+    const [mYear, mMon] = monthKey.split('-').map(Number);
+    const monthLabel = new Date(mYear, mMon-1, 1).toLocaleDateString('en-IN',{month:'short',year:'numeric'});
+    if (monthKeys.length > 1) {
+      log(`⚠ File contains rows from ${monthKeys.length} different months — using dominant month ${monthLabel}. Other months' rows are still included in this file's totals.`, 'warn');
+    }
+    log(`✓ Detected month: ${monthLabel} (key: ${monthKey})`, 'ok');
     prog(45);
 
     const state_data = {}, city_data = {}, product_data = {}, daily_data = {};
@@ -214,29 +289,43 @@ window.uploadExcel = async function() {
 
     const meta = {
       division: 'Generic',
+      month_key: monthKey,
+      month_label: monthLabel,
       total_net_sales: Math.round(total*100)/100,
       period: minDate && maxDate ? `${minDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})} → ${maxDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}` : '',
-      period_tag: minDate ? minDate.toLocaleDateString('en-IN',{month:'short',year:'numeric'}) : '',
+      period_tag: monthLabel,
       billing_days: Object.keys(dayMap).length,
       sap_info: `SAP Lines: ${lineCount} (Generic only) · ₹${(total/100000).toFixed(2)}L`,
       uploaded_at: new Date().toISOString(),
       area_field_note: 'Area/HQ grouping uses City — SAP export has no populated Sale Offc. Desc. field.'
     };
 
-    log('// Uploading to Firebase (overwriting previous Generic data)...', 'info');
+    // Check whether this month already has data, so we can warn before overwrite.
+    const existingSnap = await get(ref(db, `/months/${monthKey}/meta`));
+    if (existingSnap.exists()) {
+      log(`⚠ ${monthLabel} already has data (uploaded ${existingSnap.val().uploaded_at || 'earlier'}) — this upload will replace it.`, 'warn');
+    }
+
+    log(`// Uploading ${monthLabel} to Firebase (/months/${monthKey})...`, 'info');
     prog(60);
     await Promise.all([
-      set(ref(db,'/state_data'), state_data),
-      set(ref(db,'/city_data'), city_data),
-      set(ref(db,'/product_data'), product_data),
-      set(ref(db,'/daily_data'), daily_data),
-      set(ref(db,'/state_drilldown'), state_drilldown),
-      set(ref(db,'/meta'), meta),
+      set(ref(db,`/months/${monthKey}/state_data`), state_data),
+      set(ref(db,`/months/${monthKey}/city_data`), city_data),
+      set(ref(db,`/months/${monthKey}/product_data`), product_data),
+      set(ref(db,`/months/${monthKey}/daily_data`), daily_data),
+      set(ref(db,`/months/${monthKey}/state_drilldown`), state_drilldown),
+      set(ref(db,`/months/${monthKey}/meta`), meta),
+      set(ref(db,`/months_index/${monthKey}`), {
+        label: monthLabel,
+        total_net_sales: meta.total_net_sales,
+        billing_days: meta.billing_days,
+        uploaded_at: meta.uploaded_at,
+      }),
     ]);
     prog(100);
-    log('🎉 ALL DATA PUSHED TO FIREBASE!', 'ok');
-    log(`→ ${lineCount} lines · ${Object.keys(stateMap).length} states · ${Object.keys(cityMap).length} cities · ${Object.keys(prodMap).length} products`, 'ok');
-    log('→ Open dashboard.html to view the live dashboard', 'info');
+    log('🎉 DATA PUSHED TO FIREBASE!', 'ok');
+    log(`→ Month: ${monthLabel} · ${lineCount} lines · ${Object.keys(stateMap).length} states · ${Object.keys(cityMap).length} cities · ${Object.keys(prodMap).length} products`, 'ok');
+    log('→ Open dashboard.html to view the live dashboard, or upload another month.', 'info');
     btn.textContent = '✓ UPLOADED!';
     btn.style.background = 'linear-gradient(135deg,#4ade80,#22c55e)';
   } catch(e) {
