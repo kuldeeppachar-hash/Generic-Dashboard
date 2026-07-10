@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Generic Division — Firebase Uploader</title>
+<title>Sales Dashboard — Firebase Uploader</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
   :root{--bg:#060a12;--surface:#0d1520;--border:rgba(56,189,248,0.15);--cyan:#38bdf8;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--text:#e2e8f0;--text-dim:#64748b;}
@@ -33,21 +33,22 @@
   .file-drop input{display:none;}
   .file-name{color:var(--green);margin-top:6px;font-size:11px;}
   .links{display:flex;gap:12px;margin-top:20px;justify-content:center;}
-  .link-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:transparent;transition:all 0.15s;text-decoration:none;display:inline-block;}
+  .link-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:transparent;transition:all .15s;text-decoration:none;display:inline-block;}
   .link-btn:hover{border-color:var(--cyan);color:var(--cyan);}
 </style>
 </head>
 <body>
 <div class="box">
-  <h1>⬆ Generic Division — Firebase Data Uploader</h1>
-  <div class="sub">Upload the raw SAP export → it filters to Division = "Generic", aggregates, and pushes live to Firebase. No SO data is generated or stored.</div>
+  <h1>⬆ Sales Dashboard — Firebase Data Uploader</h1>
+  <div class="sub">Upload the raw SAP export → it splits rows into <b>Generic</b> and <b>C.Care</b> divisions, aggregates each separately, and pushes both live to Firebase in one go. No SO data is generated or stored.</div>
 
   <div class="step">
     <div class="step-title">// SOURCE OF TRUTH</div>
     <div class="step-body">
       This tool reads <b>only</b> the raw SAP-derived export Excel — nothing else feeds this dashboard.<br>
-      It auto-detects the data sheet (some exports have blank scratch sheets before the real one) and the column format, then filters to the <b>Generic</b> division only.<br>
-      Two export formats are supported: SAP direct export (<code>Division Name</code> = "Generic"), and distributor-type export (<code>Distribtor Type</code> = "Generic Distributors" <b>and</b> <code>Product type</code> = "Other-Generic"). "City" is read from <code>City</code> or <code>Head Quarter</code>, whichever the file has.
+      It auto-detects the data sheet (some exports have blank scratch sheets before the real one) and the column format.<br>
+      <b>SAP direct export</b> (has a <code>Division Name</code> column): rows where Division Name = "Generic" go to the Generic tile. Rows where Division Name starts with "C.Care" (e.g. "C.Care (Anaesthesia)", "C.Care (Antibiotics)") go to the C.Care tile, further split by the text in brackets as subtype.<br>
+      <b>Distributor-type export</b> (older format — <code>Distribtor Type</code> / <code>Product type</code> columns only): this schema has no real division field, so it can only ever produce <b>Generic</b> data. C.Care is not recoverable from this format. "City" is read from <code>City</code> or <code>Head Quarter</code>, whichever the file has.
     </div>
   </div>
 
@@ -55,8 +56,9 @@
     <div class="step-title">// MONTH-BY-MONTH STORAGE</div>
     <div class="step-body">
       Each upload is detected by its <b>Invoice Date</b> and saved under its own month — it no longer overwrites other months.<br>
-      Re-uploading a file for a month you've already uploaded will <b>overwrite that month only</b> (useful for corrections); everything else stays untouched.<br>
-      The dashboard reads all months and lets you compare them side by side.
+      Generic and C.Care are stored as <b>sibling nodes</b> per month (<code>/months/{month}/generic/...</code> and <code>/months/{month}/ccare/...</code>) — uploading one doesn't touch the other.<br>
+      Re-uploading a file for a month/division you've already uploaded will <b>overwrite that month+division only</b> (useful for corrections); everything else stays untouched.<br>
+      If a file has zero C.Care rows for a month, the C.Care node for that month is left as-is (not wiped) — so a Generic-only re-upload never deletes existing C.Care data.
     </div>
   </div>
 
@@ -130,6 +132,87 @@ window.handleFile = function(file) {
   window._pendingFile = file;
 };
 
+// Aggregates one division's rows into the same shape the dashboard expects.
+// Returns null if there are zero valid lines.
+function aggregate(rowsForDivision) {
+  const stateMap = {}, cityMap = {}, prodMap = {}, dayMap = {};
+  const stateDetail = {};
+  let total = 0, lineCount = 0, minDate = null, maxDate = null;
+
+  rowsForDivision.forEach(r => {
+    const amt = parseFloat(r['Net Amount'] || 0);
+    if (!amt) return;
+    lineCount++;
+    total += amt;
+
+    const qty  = parseFloat(r['Quantity'] || 0) || 0;
+    const state = String(r['State']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
+    const city  = String(r['City']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
+    const prod  = String(r['Product Description']||'Unknown').trim();
+
+    stateMap[state] = (stateMap[state]||0) + amt;
+    cityMap[city]   = (cityMap[city]||0) + amt;
+    prodMap[prod]   = (prodMap[prod]||0) + amt;
+
+    if (!stateDetail[state]) stateDetail[state] = { cities:{}, products:{} };
+    stateDetail[state].cities[city] = (stateDetail[state].cities[city]||0) + amt;
+    if (!stateDetail[state].products[prod]) stateDetail[state].products[prod] = {qty:0, amt:0};
+    stateDetail[state].products[prod].qty += qty;
+    stateDetail[state].products[prod].amt += amt;
+
+    const rawDate = r['Invoice Date'];
+    if (rawDate) {
+      let d = rawDate instanceof Date ? rawDate : new Date(rawDate);
+      if (!isNaN(d)) {
+        const dateStr = d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}).replace(/ /g,'-');
+        if (!minDate || d < minDate) minDate = d;
+        if (!maxDate || d > maxDate) maxDate = d;
+        dayMap[dateStr] = (dayMap[dateStr]||0) + amt;
+      }
+    }
+  });
+
+  if (lineCount === 0) return null;
+
+  const state_data = {}, city_data = {}, product_data = {}, daily_data = {};
+  Object.entries(stateMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ state_data[`state_${i}`] = {name, amt: Math.round(amt*100)/100}; });
+  Object.entries(cityMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ city_data[`city_${i}`] = {name, amt: Math.round(amt*100)/100}; });
+  Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ product_data[`prod_${i}`] = {name, amt: Math.round(amt*100)/100}; });
+  Object.entries(dayMap).forEach(([date,amt],i)=>{ daily_data[`day_${i}`] = {date, amt: Math.round(amt*100)/100}; });
+
+  const safeKey = s => s.replace(/[.#$/\[\]]/g, '_');
+  const state_drilldown = {};
+  Object.entries(stateDetail).forEach(([state, detail]) => {
+    const cities = Object.entries(detail.cities).sort((a,b)=>b[1]-a[1])
+      .map(([name,amt]) => ({name, amt: Math.round(amt*100)/100}));
+    const products = Object.entries(detail.products).sort((a,b)=>b[1].amt-a[1].amt)
+      .map(([name,v]) => ({name, qty: Math.round(v.qty*100)/100, amt: Math.round(v.amt*100)/100}));
+    state_drilldown[safeKey(state)] = { state, cities, products };
+  });
+
+  return {
+    state_data, city_data, product_data, daily_data, state_drilldown,
+    total, lineCount, minDate, maxDate,
+    stateCount: Object.keys(stateMap).length, cityCount: Object.keys(cityMap).length,
+    prodCount: Object.keys(prodMap).length, dayCount: Object.keys(dayMap).length,
+  };
+}
+
+function buildMeta(division, agg, monthKey, monthLabel) {
+  return {
+    division,
+    month_key: monthKey,
+    month_label: monthLabel,
+    total_net_sales: Math.round(agg.total*100)/100,
+    period: agg.minDate && agg.maxDate ? `${agg.minDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})} → ${agg.maxDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}` : '',
+    period_tag: monthLabel,
+    billing_days: agg.dayCount,
+    sap_info: `SAP Lines: ${agg.lineCount} (${division} only) · ₹${(agg.total/100000).toFixed(2)}L`,
+    uploaded_at: new Date().toISOString(),
+    area_field_note: 'Area/HQ grouping uses City — SAP export has no populated Sale Offc. Desc. field.'
+  };
+}
+
 window.uploadExcel = async function() {
   const file = window._pendingFile;
   if (!file) return;
@@ -152,14 +235,11 @@ window.uploadExcel = async function() {
     const buf = await file.arrayBuffer();
     const wb  = XLSX.read(buf, {cellDates:true});
 
-    // Pick the sheet that actually has tabular data — some exports carry
-    // blank scratch sheets before the real data sheet, so "first sheet"
-    // isn't reliable. Choose the sheet with the most rows.
     let bestSheetName = wb.SheetNames[0], bestRowCount = -1;
     for (const name of wb.SheetNames) {
       const s = wb.Sheets[name];
-      const ref = s['!ref'];
-      const rc = ref ? (XLSX.utils.decode_range(ref).e.r + 1) : 0;
+      const r = s['!ref'];
+      const rc = r ? (XLSX.utils.decode_range(r).e.r + 1) : 0;
       if (rc > bestRowCount) { bestRowCount = rc; bestSheetName = name; }
     }
     const ws = wb.Sheets[bestSheetName];
@@ -170,27 +250,37 @@ window.uploadExcel = async function() {
     if (!rawRows.length) throw new Error(`Sheet "${bestSheetName}" appears to have no data rows.`);
 
     // Two known export schemas feed this dashboard:
-    //  A) SAP direct export — has "Division Name", "City", "Invoice Date"
+    //  A) SAP direct export — has "Division Name" (this is the ONLY schema that
+    //     can carry C.Care data, since it's the only one with a real division field)
     //  B) Distributor-type export — has "Distribtor Type", "Product type",
-    //     "Head Quarter" (used as City), "Invoce Date" (typo in source)
+    //     "Head Quarter" (used as City), "Invoce Date" (typo in source) —
+    //     Generic only, C.Care is structurally impossible in this schema.
     const sample = rawRows[0];
     const isSchemaA = Object.prototype.hasOwnProperty.call(sample, 'Division Name');
     const isSchemaB = Object.prototype.hasOwnProperty.call(sample, 'Distribtor Type') || Object.prototype.hasOwnProperty.call(sample, 'Product type');
 
-    let rows, schemaLabel;
+    let rows, schemaLabel, schemaCanHaveCCare;
     if (isSchemaA) {
       schemaLabel = 'SAP direct export (Division Name)';
-      rows = rawRows.map(r => ({
-        State: r['State'], City: r['City'], 'Product Description': r['Product Description'],
-        'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoice Date'],
-        _isGeneric: String(r['Division Name']||'').trim() === 'Generic',
-      }));
+      schemaCanHaveCCare = true;
+      rows = rawRows.map(r => {
+        const divName = String(r['Division Name']||'').trim();
+        const ccareMatch = divName.match(/^C\.Care\s*\(([^)]+)\)/i) || (/^C\.Care$/i.test(divName) ? [null, 'Unspecified'] : null);
+        return {
+          State: r['State'], City: r['City'], 'Product Description': r['Product Description'],
+          'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoice Date'],
+          _division: divName === 'Generic' ? 'generic' : (ccareMatch ? 'ccare' : null),
+          _subtype: ccareMatch ? ccareMatch[1].trim() : null,
+        };
+      });
     } else if (isSchemaB) {
-      schemaLabel = 'Distributor-type export (Distribtor Type / Product type)';
+      schemaLabel = 'Distributor-type export (Distribtor Type / Product type) — Generic only, no C.Care field in this format';
+      schemaCanHaveCCare = false;
       rows = rawRows.map(r => ({
         State: r['State'], City: r['Head Quarter'], 'Product Description': r['Product Description'],
         'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoce Date'] || r['Invoice Date'],
-        _isGeneric: String(r['Distribtor Type']||'').trim() === 'Generic Distributors' && String(r['Product type']||'').trim() === 'Other-Generic',
+        _division: (String(r['Distribtor Type']||'').trim() === 'Generic Distributors' && String(r['Product type']||'').trim() === 'Other-Generic') ? 'generic' : null,
+        _subtype: null,
       }));
     } else {
       throw new Error('Could not recognize this file\'s columns. Expected either "Division Name" or "Distribtor Type"/"Product type" columns. Check this is a SAP sales export.');
@@ -198,59 +288,51 @@ window.uploadExcel = async function() {
     log(`✓ Detected format: ${schemaLabel}`, 'ok');
     prog(15);
 
-    const genericRows = rows.filter(r => r._isGeneric);
-    log(`✓ Filtered to Generic division: ${genericRows.length} rows (dropped ${rows.length - genericRows.length} from other divisions)`, 'ok');
+    const genericRows = rows.filter(r => r._division === 'generic');
+    const ccareRows = rows.filter(r => r._division === 'ccare');
+    log(`✓ Split: ${genericRows.length} Generic rows, ${ccareRows.length} C.Care rows (dropped ${rows.length - genericRows.length - ccareRows.length} from other divisions)`, 'ok');
+    if (!schemaCanHaveCCare && ccareRows.length === 0) {
+      log(`ℹ This file's schema can't carry C.Care data — only Generic will be uploaded.`, 'info');
+    }
     prog(25);
 
     if (genericRows.length === 0) {
       throw new Error('No rows found for the Generic division after filtering. Check this is the correct export.');
     }
 
-    const stateMap = {}, cityMap = {}, prodMap = {}, dayMap = {};
-    const stateDetail = {}; // { state: { cities:{city:amt}, products:{prod:{qty,amt}} } }
-    let total = 0, lineCount = 0, minDate = null, maxDate = null;
-
-    genericRows.forEach(r => {
-      const amt = parseFloat(r['Net Amount'] || 0);
-      if (!amt) return;
-      lineCount++;
-      total += amt;
-
-      const qty  = parseFloat(r['Quantity'] || 0) || 0;
-      const state = String(r['State']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
-      const city  = String(r['City']||'Unknown').trim().toUpperCase().replace(/\s+/g,' ');
-      const prod  = String(r['Product Description']||'Unknown').trim();
-
-      stateMap[state] = (stateMap[state]||0) + amt;
-      cityMap[city]   = (cityMap[city]||0) + amt;
-      prodMap[prod]   = (prodMap[prod]||0) + amt;
-
-      if (!stateDetail[state]) stateDetail[state] = { cities:{}, products:{} };
-      stateDetail[state].cities[city] = (stateDetail[state].cities[city]||0) + amt;
-      if (!stateDetail[state].products[prod]) stateDetail[state].products[prod] = {qty:0, amt:0};
-      stateDetail[state].products[prod].qty += qty;
-      stateDetail[state].products[prod].amt += amt;
-
-      const rawDate = r['Invoice Date'];
-      if (rawDate) {
-        let d = rawDate instanceof Date ? rawDate : new Date(rawDate);
-        if (!isNaN(d)) {
-          const dateStr = d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}).replace(/ /g,'-');
-          if (!minDate || d < minDate) minDate = d;
-          if (!maxDate || d > maxDate) maxDate = d;
-          dayMap[dateStr] = (dayMap[dateStr]||0) + amt;
-        }
-      }
-    });
-
-    log(`✓ Aggregated: ₹${(total/100000).toFixed(2)}L across ${lineCount} lines`, 'ok');
+    const genericAgg = aggregate(genericRows);
+    const ccareAgg = ccareRows.length ? aggregate(ccareRows) : null;
+    log(`✓ Generic aggregated: ₹${(genericAgg.total/100000).toFixed(2)}L across ${genericAgg.lineCount} lines`, 'ok');
+    if (ccareAgg) log(`✓ C.Care aggregated: ₹${(ccareAgg.total/100000).toFixed(2)}L across ${ccareAgg.lineCount} lines`, 'ok');
     prog(40);
 
-    // Determine which calendar month this file belongs to, by summing amounts
-    // per month and picking the month with the most billing (handles files that
-    // spill a few stray rows into an adjacent month).
+    // Subtype breakdown for C.Care (Anaesthesia / Antibiotics / etc.)
+    let subtype_data = null;
+    if (ccareRows.length) {
+      const subtypeMap = {};
+      ccareRows.forEach(r => {
+        const amt = parseFloat(r['Net Amount'] || 0);
+        if (!amt) return;
+        const qty = parseFloat(r['Quantity'] || 0) || 0;
+        const st = r._subtype || 'Unspecified';
+        if (!subtypeMap[st]) subtypeMap[st] = {amt:0, qty:0, lines:0};
+        subtypeMap[st].amt += amt;
+        subtypeMap[st].qty += qty;
+        subtypeMap[st].lines += 1;
+      });
+      subtype_data = {};
+      Object.entries(subtypeMap).sort((a,b)=>b[1].amt-a[1].amt).forEach(([name,v],i)=>{
+        subtype_data[`subtype_${i}`] = { name, amt: Math.round(v.amt*100)/100, qty: Math.round(v.qty*100)/100, lines: v.lines };
+      });
+      log(`✓ C.Care subtypes: ${Object.keys(subtypeMap).join(', ')}`, 'ok');
+    }
+    prog(45);
+
+    // Determine which calendar month this file belongs to, using ALL
+    // classified rows (Generic + C.Care combined) so both divisions land
+    // in the same month bucket for a normal single-month file.
     const monthTally = {};
-    genericRows.forEach(r => {
+    [...genericRows, ...ccareRows].forEach(r => {
       const amt = parseFloat(r['Net Amount'] || 0);
       if (!amt) return;
       const rawDate = r['Invoice Date'];
@@ -269,62 +351,63 @@ window.uploadExcel = async function() {
       log(`⚠ File contains rows from ${monthKeys.length} different months — using dominant month ${monthLabel}. Other months' rows are still included in this file's totals.`, 'warn');
     }
     log(`✓ Detected month: ${monthLabel} (key: ${monthKey})`, 'ok');
-    prog(45);
+    prog(55);
 
-    const state_data = {}, city_data = {}, product_data = {}, daily_data = {};
-    Object.entries(stateMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ state_data[`state_${i}`] = {name, amt: Math.round(amt*100)/100}; });
-    Object.entries(cityMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ city_data[`city_${i}`] = {name, amt: Math.round(amt*100)/100}; });
-    Object.entries(prodMap).sort((a,b)=>b[1]-a[1]).forEach(([name,amt],i)=>{ product_data[`prod_${i}`] = {name, amt: Math.round(amt*100)/100}; });
-    Object.entries(dayMap).forEach(([date,amt],i)=>{ daily_data[`day_${i}`] = {date, amt: Math.round(amt*100)/100}; });
+    const genericMeta = buildMeta('Generic', genericAgg, monthKey, monthLabel);
+    const ccareMeta = ccareAgg ? buildMeta('C.Care', ccareAgg, monthKey, monthLabel) : null;
 
-    const safeKey = s => s.replace(/[.#$/\[\]]/g, '_');
-    const state_drilldown = {};
-    Object.entries(stateDetail).forEach(([state, detail]) => {
-      const cities = Object.entries(detail.cities).sort((a,b)=>b[1]-a[1])
-        .map(([name,amt]) => ({name, amt: Math.round(amt*100)/100}));
-      const products = Object.entries(detail.products).sort((a,b)=>b[1].amt-a[1].amt)
-        .map(([name,v]) => ({name, qty: Math.round(v.qty*100)/100, amt: Math.round(v.amt*100)/100}));
-      state_drilldown[safeKey(state)] = { state, cities, products };
-    });
-
-    const meta = {
-      division: 'Generic',
-      month_key: monthKey,
-      month_label: monthLabel,
-      total_net_sales: Math.round(total*100)/100,
-      period: minDate && maxDate ? `${minDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})} → ${maxDate.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})}` : '',
-      period_tag: monthLabel,
-      billing_days: Object.keys(dayMap).length,
-      sap_info: `SAP Lines: ${lineCount} (Generic only) · ₹${(total/100000).toFixed(2)}L`,
-      uploaded_at: new Date().toISOString(),
-      area_field_note: 'Area/HQ grouping uses City — SAP export has no populated Sale Offc. Desc. field.'
-    };
-
-    // Check whether this month already has data, so we can warn before overwrite.
-    const existingSnap = await get(ref(db, `/months/${monthKey}/meta`));
-    if (existingSnap.exists()) {
-      log(`⚠ ${monthLabel} already has data (uploaded ${existingSnap.val().uploaded_at || 'earlier'}) — this upload will replace it.`, 'warn');
+    const [genExistSnap, ccareExistSnap] = await Promise.all([
+      get(ref(db, `/months/${monthKey}/generic/meta`)),
+      get(ref(db, `/months/${monthKey}/ccare/meta`)),
+    ]);
+    if (genExistSnap.exists()) {
+      log(`⚠ ${monthLabel} Generic already has data (uploaded ${genExistSnap.val().uploaded_at || 'earlier'}) — this upload will replace it.`, 'warn');
+    }
+    if (ccareAgg && ccareExistSnap.exists()) {
+      log(`⚠ ${monthLabel} C.Care already has data (uploaded ${ccareExistSnap.val().uploaded_at || 'earlier'}) — this upload will replace it.`, 'warn');
     }
 
     log(`// Uploading ${monthLabel} to Firebase (/months/${monthKey})...`, 'info');
-    prog(60);
-    await Promise.all([
-      set(ref(db,`/months/${monthKey}/state_data`), state_data),
-      set(ref(db,`/months/${monthKey}/city_data`), city_data),
-      set(ref(db,`/months/${monthKey}/product_data`), product_data),
-      set(ref(db,`/months/${monthKey}/daily_data`), daily_data),
-      set(ref(db,`/months/${monthKey}/state_drilldown`), state_drilldown),
-      set(ref(db,`/months/${monthKey}/meta`), meta),
-      set(ref(db,`/months_index/${monthKey}`), {
-        label: monthLabel,
-        total_net_sales: meta.total_net_sales,
-        billing_days: meta.billing_days,
-        uploaded_at: meta.uploaded_at,
+    prog(65);
+
+    const writes = [
+      set(ref(db,`/months/${monthKey}/generic/state_data`), genericAgg.state_data),
+      set(ref(db,`/months/${monthKey}/generic/city_data`), genericAgg.city_data),
+      set(ref(db,`/months/${monthKey}/generic/product_data`), genericAgg.product_data),
+      set(ref(db,`/months/${monthKey}/generic/daily_data`), genericAgg.daily_data),
+      set(ref(db,`/months/${monthKey}/generic/state_drilldown`), genericAgg.state_drilldown),
+      set(ref(db,`/months/${monthKey}/generic/meta`), genericMeta),
+      set(ref(db,`/months_index/${monthKey}/generic`), {
+        label: monthLabel, total_net_sales: genericMeta.total_net_sales,
+        billing_days: genericMeta.billing_days, uploaded_at: genericMeta.uploaded_at,
       }),
-    ]);
+    ];
+
+    if (ccareAgg) {
+      writes.push(
+        set(ref(db,`/months/${monthKey}/ccare/state_data`), ccareAgg.state_data),
+        set(ref(db,`/months/${monthKey}/ccare/city_data`), ccareAgg.city_data),
+        set(ref(db,`/months/${monthKey}/ccare/product_data`), ccareAgg.product_data),
+        set(ref(db,`/months/${monthKey}/ccare/daily_data`), ccareAgg.daily_data),
+        set(ref(db,`/months/${monthKey}/ccare/state_drilldown`), ccareAgg.state_drilldown),
+        set(ref(db,`/months/${monthKey}/ccare/subtype_data`), subtype_data),
+        set(ref(db,`/months/${monthKey}/ccare/meta`), ccareMeta),
+        set(ref(db,`/months_index/${monthKey}/ccare`), {
+          label: monthLabel, total_net_sales: ccareMeta.total_net_sales,
+          billing_days: ccareMeta.billing_days, uploaded_at: ccareMeta.uploaded_at,
+        }),
+      );
+    }
+
+    await Promise.all(writes);
     prog(100);
     log('🎉 DATA PUSHED TO FIREBASE!', 'ok');
-    log(`→ Month: ${monthLabel} · ${lineCount} lines · ${Object.keys(stateMap).length} states · ${Object.keys(cityMap).length} cities · ${Object.keys(prodMap).length} products`, 'ok');
+    log(`→ Generic: ${genericAgg.lineCount} lines · ${genericAgg.stateCount} states · ${genericAgg.cityCount} cities · ${genericAgg.prodCount} products`, 'ok');
+    if (ccareAgg) {
+      log(`→ C.Care: ${ccareAgg.lineCount} lines · ${ccareAgg.stateCount} states · ${ccareAgg.cityCount} cities · ${ccareAgg.prodCount} products · subtypes: ${Object.values(subtype_data).map(s=>s.name).join(', ')}`, 'ok');
+    } else {
+      log(`→ C.Care: not present in this file — existing C.Care data for ${monthLabel} (if any) left untouched.`, 'info');
+    }
     log('→ Open dashboard.html to view the live dashboard, or upload another month.', 'info');
     btn.textContent = '✓ UPLOADED!';
     btn.style.background = 'linear-gradient(135deg,#4ade80,#22c55e)';

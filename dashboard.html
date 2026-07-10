@@ -2,17 +2,22 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Generic Division — Sales Dashboard</title>
+<title>Sales Dashboard</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap');
   :root{--bg:#060a12;--surface:#0d1520;--surface2:#0a1018;--border:rgba(56,189,248,0.15);--cyan:#38bdf8;--green:#4ade80;--red:#f87171;--amber:#fbbf24;--text:#e2e8f0;--text-dim:#64748b;}
   *{box-sizing:border-box;margin:0;padding:0;}
   body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;padding:32px 24px 60px;}
-  header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;max-width:1320px;margin:0 auto 24px;}
+  header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;max-width:1320px;margin:0 auto 16px;}
   h1{font-size:20px;color:var(--cyan);letter-spacing:-0.5px;}
   .sub{color:var(--text-dim);font-size:11px;margin-top:4px;}
   .link-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:transparent;text-decoration:none;display:inline-block;transition:all .15s;}
   .link-btn:hover{border-color:var(--cyan);color:var(--cyan);}
+  .division-tabs{max-width:1320px;margin:0 auto 14px;display:flex;gap:10px;}
+  .division-tab{padding:10px 20px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim);font-size:12px;font-weight:700;letter-spacing:0.4px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:var(--surface);transition:all .15s;}
+  .division-tab:hover{border-color:var(--cyan);color:var(--cyan);}
+  .division-tab.active.div-generic{border-color:var(--cyan);color:var(--cyan);background:rgba(56,189,248,0.08);}
+  .division-tab.active.div-ccare{border-color:var(--amber);color:var(--amber);background:rgba(251,191,36,0.08);}
   .grid{max-width:1320px;margin:0 auto;display:grid;grid-template-columns:repeat(12,1fr);gap:16px;}
   .tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;flex-direction:column;}
   .tile-hero{grid-column:span 12;}
@@ -75,11 +80,16 @@
 
 <header>
   <div>
-    <h1>📊 Generic Division — Sales Dashboard</h1>
+    <h1 id="pageTitle">📊 Sales Dashboard</h1>
     <div class="sub" id="periodLine">Loading period...</div>
   </div>
   <a href="upload_to_firebase.html" class="link-btn">⬆ Upload New Data</a>
 </header>
+
+<div class="division-tabs" id="divisionTabs">
+  <button class="division-tab div-generic" onclick="selectDivision('generic')">Generic</button>
+  <button class="division-tab div-ccare" onclick="selectDivision('ccare')">C.Care</button>
+</div>
 
 <div class="month-tabs" id="monthTabs"></div>
 
@@ -95,7 +105,7 @@
 
   <div class="tile tile-hero">
     <div class="tile-head">
-      <div class="tile-title">Total Net Sales — <span id="selMonthLabel">—</span></div>
+      <div class="tile-title">Total Net Sales (Merged) — <span id="selMonthLabel">—</span></div>
       <button class="export-btn" onclick="exportSummary()">⬇ Export Summary (xlsx)</button>
     </div>
     <div class="hero-stats">
@@ -107,6 +117,19 @@
       <div class="stat-mini"><div class="v" id="statCities">—</div><div class="l">Cities (Area/HQ)</div></div>
       <div class="stat-mini"><div class="v" id="statProducts">—</div><div class="l">Products</div></div>
       <div class="stat-mini"><div class="v" id="statDays">—</div><div class="l">Billing Days</div></div>
+    </div>
+  </div>
+
+  <div class="tile tile-hero" id="subtypeTile" style="display:none;">
+    <div class="tile-head">
+      <div class="tile-title">C.Care — By Subtype</div>
+      <button class="export-btn" onclick="exportSubtype()">⬇ Export (xlsx)</button>
+    </div>
+    <div class="scroll" style="max-height:280px">
+      <table>
+        <thead><tr><th>Subtype</th><th>Share</th><th style="text-align:right">Net Qty</th><th style="text-align:right">Lines</th><th style="text-align:right">Net Amount (₹)</th></tr></thead>
+        <tbody id="subtypeBody"></tbody>
+      </table>
     </div>
   </div>
 
@@ -174,11 +197,14 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
 
-const MONTHS = {};      // monthKey -> raw month node from Firebase
-let monthOrder = [];    // sorted monthKeys, oldest -> newest
-let selectedMonth = ''; // currently displayed month key
+const DIVISION_LABEL = { generic: 'Generic', ccare: 'C.Care' };
 
-const DATA = { state: [], city: [], product: [], meta: {}, drilldown: {} };
+const MONTHS = {};      // monthKey -> { generic: {...}, ccare: {...} }
+let monthOrder = [];    // monthKeys that have data for the CURRENT division, oldest -> newest
+let selectedMonth = ''; // currently displayed month key
+let currentDivision = 'generic';
+
+const DATA = { state: [], city: [], product: [], subtype: [], meta: {}, drilldown: {} };
 
 function fmt(n){ return Number(n).toLocaleString('en-IN', {maximumFractionDigits:0}); }
 
@@ -213,6 +239,34 @@ window.renderTable = function(key, filter=''){
     </tr>`).join('');
 };
 
+function renderSubtypeTile(){
+  const tile = document.getElementById('subtypeTile');
+  if (currentDivision !== 'ccare' || !DATA.subtype.length) {
+    tile.style.display = 'none';
+    return;
+  }
+  tile.style.display = 'flex';
+  const body = document.getElementById('subtypeBody');
+  const max = DATA.subtype[0].amt || 1;
+  body.innerHTML = DATA.subtype.map(r => `
+    <tr>
+      <td>${r.name}</td>
+      <td><div class="bar-row"><div class="bar-track"><div class="bar-fill" style="width:${Math.max(2,(r.amt/max*100)).toFixed(1)}%"></div></div></td>
+      <td class="amt">${fmt(r.qty||0)}</td>
+      <td class="amt">${fmt(r.lines||0)}</td>
+      <td class="amt">₹${fmt(r.amt)}</td>
+    </tr>`).join('');
+}
+
+window.exportSubtype = async function(){
+  await loadXLSX();
+  const aoa = [['Subtype','Net Qty','Lines','Net Amount (INR)'], ...DATA.subtype.map(r=>[r.name, r.qty||0, r.lines||0, r.amt])];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'C.Care Subtypes');
+  XLSX.writeFile(wb, `ccare_subtypes_${(DATA.meta.period_tag||'export').replace(/\s+/g,'_')}.xlsx`);
+};
+
 window.exportTable = async function(key){
   await loadXLSX();
   const rows = DATA[key];
@@ -221,7 +275,7 @@ window.exportTable = async function(key){
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, label.slice(0,28));
-  XLSX.writeFile(wb, `${key}_wise_sales_${(DATA.meta.period_tag||'export').replace(/\s+/g,'_')}.xlsx`);
+  XLSX.writeFile(wb, `${DIVISION_LABEL[currentDivision]}_${key}_wise_sales_${(DATA.meta.period_tag||'export').replace(/\s+/g,'_')}.xlsx`);
 };
 
 window.exportSummary = async function(){
@@ -229,6 +283,7 @@ window.exportSummary = async function(){
   const wb = XLSX.utils.book_new();
   const summary = [
     ['Metric','Value'],
+    ['Division', DIVISION_LABEL[currentDivision]],
     ['Total Net Sales (INR)', DATA.meta.total_net_sales || 0],
     ['Period', DATA.meta.period || ''],
     ['Billing Days', DATA.meta.billing_days || 0],
@@ -240,7 +295,10 @@ window.exportSummary = async function(){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['State','Net Amount'], ...DATA.state.map(r=>[r.name,r.amt])]), 'State-wise');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['City','Net Amount'], ...DATA.city.map(r=>[r.name,r.amt])]), 'Area-HQ-wise');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product','Net Amount'], ...DATA.product.map(r=>[r.name,r.amt])]), 'Product-wise');
-  XLSX.writeFile(wb, `generic_division_sales_summary_${(DATA.meta.period_tag||'export').replace(/\s+/g,'_')}.xlsx`);
+  if (DATA.subtype.length) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Subtype','Net Qty','Lines','Net Amount'], ...DATA.subtype.map(r=>[r.name,r.qty||0,r.lines||0,r.amt])]), 'Subtypes');
+  }
+  XLSX.writeFile(wb, `${DIVISION_LABEL[currentDivision]}_division_sales_summary_${(DATA.meta.period_tag||'export').replace(/\s+/g,'_')}.xlsx`);
 };
 
 let selectedState = '';
@@ -307,7 +365,7 @@ window.exportDrilldown = async function(){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['City','Net Amount'], ...d.cities.map(c=>[c.name,c.amt])]), 'HQs-Cities');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Product','Net Qty','Net Amount'], ...d.products.map(p=>[p.name,p.qty,p.amt])]), 'Products');
-  XLSX.writeFile(wb, `${stateName.replace(/\s+/g,'_')}_drilldown.xlsx`);
+  XLSX.writeFile(wb, `${DIVISION_LABEL[currentDivision]}_${stateName.replace(/\s+/g,'_')}_drilldown.xlsx`);
 };
 
 function monthKeyLabel(key){
@@ -315,20 +373,36 @@ function monthKeyLabel(key){
   return new Date(y, m-1, 1).toLocaleDateString('en-IN',{month:'short',year:'numeric'});
 }
 
+function divisionNode(key){
+  return (MONTHS[key] && MONTHS[key][currentDivision]) || null;
+}
+
+function computeMonthOrderForDivision(){
+  return Object.keys(MONTHS)
+    .filter(k => divisionNode(k) && divisionNode(k).meta)
+    .sort();
+}
+
 function renderMonthTabs(){
   const wrap = document.getElementById('monthTabs');
+  if (!monthOrder.length) {
+    wrap.innerHTML = `<div class="empty">No ${DIVISION_LABEL[currentDivision]} data uploaded yet.</div>`;
+    return;
+  }
   wrap.innerHTML = monthOrder.map(k => {
-    const label = (MONTHS[k].meta && MONTHS[k].meta.month_label) || monthKeyLabel(k);
+    const node = divisionNode(k);
+    const label = (node.meta && node.meta.month_label) || monthKeyLabel(k);
     return `<button class="month-tab ${k===selectedMonth?'active':''}" onclick="selectMonth('${k}')">${label}</button>`;
   }).join('');
 }
 
 window.selectMonth = function(key){
   selectedMonth = key;
-  const m = MONTHS[key] || {};
+  const m = divisionNode(key) || {};
   DATA.state = toArr(m.state_data);
   DATA.city = toArr(m.city_data);
   DATA.product = toArr(m.product_data);
+  DATA.subtype = toArr(m.subtype_data);
   DATA.meta = m.meta || {};
   DATA.drilldown = m.state_drilldown || {};
 
@@ -340,7 +414,7 @@ window.selectMonth = function(key){
   renderDrilldown('');
 
   document.getElementById('periodLine').textContent = DATA.meta.period
-    ? `Period: ${DATA.meta.period} · Source: raw SAP export, Division = Generic`
+    ? `Period: ${DATA.meta.period} · Source: raw SAP export, Division = ${DIVISION_LABEL[currentDivision]}`
     : 'No data for this month yet';
   document.getElementById('selMonthLabel').textContent = (DATA.meta.month_label) || monthKeyLabel(key);
 
@@ -354,17 +428,21 @@ window.selectMonth = function(key){
   renderTable('state');
   renderTable('city');
   renderTable('product');
+  renderSubtypeTile();
   renderMonthTabs();
 };
 
 function renderComparison(){
   const area = document.getElementById('comparisonArea');
-  if (!monthOrder.length){ area.innerHTML = '<div class="empty">No months uploaded yet.</div>'; return; }
-  const totals = monthOrder.map(k => ({
-    key: k,
-    label: (MONTHS[k].meta && MONTHS[k].meta.month_label) || monthKeyLabel(k),
-    amt: (MONTHS[k].meta && MONTHS[k].meta.total_net_sales) || 0,
-  }));
+  if (!monthOrder.length){ area.innerHTML = `<div class="empty">No ${DIVISION_LABEL[currentDivision]} months uploaded yet.</div>`; return; }
+  const totals = monthOrder.map(k => {
+    const node = divisionNode(k);
+    return {
+      key: k,
+      label: (node.meta && node.meta.month_label) || monthKeyLabel(k),
+      amt: (node.meta && node.meta.total_net_sales) || 0,
+    };
+  });
   const max = Math.max(...totals.map(t=>t.amt), 1);
   area.innerHTML = totals.map((t,i) => {
     const prev = i>0 ? totals[i-1].amt : null;
@@ -386,33 +464,59 @@ function renderComparison(){
 
 window.exportComparison = async function(){
   await loadXLSX();
-  const rows = monthOrder.map(k => [
-    (MONTHS[k].meta && MONTHS[k].meta.month_label) || monthKeyLabel(k),
-    (MONTHS[k].meta && MONTHS[k].meta.total_net_sales) || 0,
-    (MONTHS[k].meta && MONTHS[k].meta.billing_days) || 0,
-  ]);
+  const rows = monthOrder.map(k => {
+    const node = divisionNode(k);
+    return [
+      (node.meta && node.meta.month_label) || monthKeyLabel(k),
+      (node.meta && node.meta.total_net_sales) || 0,
+      (node.meta && node.meta.billing_days) || 0,
+    ];
+  });
   const aoa = [['Month','Total Net Sales (INR)','Billing Days'], ...rows];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Month Comparison');
-  XLSX.writeFile(wb, 'generic_division_month_comparison.xlsx');
+  XLSX.writeFile(wb, `${DIVISION_LABEL[currentDivision]}_division_month_comparison.xlsx`);
+};
+
+function refreshDivisionUI(){
+  document.querySelectorAll('.division-tab').forEach(btn => {
+    const isThis = btn.classList.contains('div-' + currentDivision);
+    btn.classList.toggle('active', isThis);
+  });
+  document.getElementById('pageTitle').textContent = currentDivision === 'ccare' ? '📊 C.Care Division — Sales Dashboard' : '📊 Generic Division — Sales Dashboard';
+}
+
+window.selectDivision = function(division){
+  currentDivision = division;
+  refreshDivisionUI();
+  monthOrder = computeMonthOrderForDivision();
+  if (!monthOrder.length) {
+    DATA.state = []; DATA.city = []; DATA.product = []; DATA.subtype = []; DATA.meta = {}; DATA.drilldown = {};
+    document.getElementById('periodLine').textContent = `No ${DIVISION_LABEL[division]} data uploaded yet — go to Upload New Data`;
+    document.getElementById('monthTabs').innerHTML = '';
+    renderComparison();
+    renderTable('state'); renderTable('city'); renderTable('product');
+    renderSubtypeTile();
+    document.getElementById('csMenu').innerHTML = '';
+    document.getElementById('csLabel').textContent = '— Select a state —';
+    renderDrilldown('');
+    document.getElementById('totalSales').textContent = '—';
+    document.getElementById('totalSalesSub').textContent = 'across all billing lines';
+    ['statStates','statCities','statProducts','statDays'].forEach(id => document.getElementById(id).textContent = '—');
+    return;
+  }
+  renderComparison();
+  selectMonth(monthOrder[monthOrder.length - 1]);
 };
 
 async function load(){
   try {
     const monthsSnap = await get(ref(db, '/months'));
     const monthsVal = monthsSnap.val() || {};
-    monthOrder = Object.keys(monthsVal).sort(); // 'YYYY-MM' sorts chronologically as a string
-    monthOrder.forEach(k => MONTHS[k] = monthsVal[k]);
+    Object.keys(monthsVal).sort().forEach(k => MONTHS[k] = monthsVal[k]);
 
-    renderComparison();
-
-    if (!monthOrder.length) {
-      document.getElementById('periodLine').textContent = 'No data uploaded yet — go to Upload New Data';
-      document.getElementById('monthTabs').innerHTML = '';
-      return;
-    }
-
-    selectMonth(monthOrder[monthOrder.length - 1]); // default to most recent month
+    refreshDivisionUI();
+    selectDivision('generic');
   } catch(e) {
     document.getElementById('periodLine').textContent = 'Error loading data: ' + e.message;
     console.error(e);
