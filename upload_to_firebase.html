@@ -47,8 +47,9 @@
     <div class="step-body">
       This tool reads <b>only</b> the raw SAP-derived export Excel — nothing else feeds this dashboard.<br>
       It auto-detects the data sheet (some exports have blank scratch sheets before the real one) and the column format.<br>
-      <b>SAP direct export</b> (has a <code>Division Name</code> column): rows where Division Name = "Generic" go to the Generic tile. Rows where Division Name starts with "C.Care" (e.g. "C.Care (Anaesthesia)", "C.Care (Antibiotics)") go to the C.Care tile, further split by the text in brackets as subtype.<br>
-      <b>Distributor-type export</b> (older format — <code>Distribtor Type</code> / <code>Product type</code> columns only): this schema has no real division field, so it can only ever produce <b>Generic</b> data. C.Care is not recoverable from this format. "City" is read from <code>City</code> or <code>Head Quarter</code>, whichever the file has.
+      <b>C.Care is identified by Product Code</b> (56-code list from the Inj. Revised Price List), <b>not</b> by the Division Name / Distributor Type label. Verified against real SAP data: C.Care product codes show up mislabeled as "PIL Ethical", "Generic", and "Cross Division" depending on how the invoice line was coded upstream — the label can't be trusted, only the code can. Any row whose Product Code is in that list goes to C.Care regardless of what its label says; everything else follows the old label-based rule for Generic.<br>
+      <b>SAP direct export</b> (has a <code>Division Name</code> column): non-C.Care rows with Division Name = "Generic" go to Generic. C.Care rows get a subtype from the bracketed text in Division Name if present (e.g. "C.Care (Anaesthesia)"), else "Unspecified".<br>
+      <b>Distributor-type export</b> (older format — <code>Distribtor Type</code> / <code>Product type</code> columns, no Division Name): non-C.Care rows go to Generic using the old Distributor Type/Product type rule. C.Care rows from this schema are always tagged "Unspecified" subtype, since this format never had a Division Name to read a subtype from. "City" is read from <code>City</code> or <code>Head Quarter</code>, whichever the file has.
     </div>
   </div>
 
@@ -259,29 +260,52 @@ window.uploadExcel = async function() {
     const isSchemaA = Object.prototype.hasOwnProperty.call(sample, 'Division Name');
     const isSchemaB = Object.prototype.hasOwnProperty.call(sample, 'Distribtor Type') || Object.prototype.hasOwnProperty.call(sample, 'Product type');
 
-    let rows, schemaLabel, schemaCanHaveCCare;
+    // C.Care is identified by PRODUCT CODE, not by the Division Name/Distribtor
+    // Type label. Verified against real SAP data: the same C.Care product code
+    // shows up tagged as "C.Care (...)", "PIL Ethical", "Generic", and even
+    // "Cross Division" depending on how that invoice line was coded upstream
+    // in SAP. Division Name is NOT a reliable division field for C.Care —
+    // product code is the only stable join key.
+    // Source: Inj. Revised Price List (23.04.26), 56 codes, C.CARE Brand column.
+    const CCARE_CODES = new Set([
+      30003141,30001499,30002410,30002411,30002243,24000224,30002289,30002136,
+      30002135,24000036,30001677,30001101,30001035,30001103,30003152,24000040,
+      24000035,30001080,30001024,30001033,30001034,30001104,30001632,30001631,
+      30003168,30002124,30002116,30003153,30001008,30001791,30001792,24000066,
+      30001009,30000998,30001016,24000051,24000039,30001007,30001228,30001018,
+      30001021,30001011,30003140,30001497,30001498,30001105,30001026,30001637,
+      30001638,30001728,30001956,30001095,30001002,24000055,30002408,30003142,
+    ]);
+
+    let rows, schemaLabel;
     if (isSchemaA) {
       schemaLabel = 'SAP direct export (Division Name)';
-      schemaCanHaveCCare = true;
       rows = rawRows.map(r => {
         const divName = String(r['Division Name']||'').trim();
-        const ccareMatch = divName.match(/^C\.Care\s*\(([^)]+)\)/i) || (/^C\.Care$/i.test(divName) ? [null, 'Unspecified'] : null);
+        const code = parseInt(r['Product Code'], 10);
+        const isCCare = CCARE_CODES.has(code);
+        const subtypeMatch = divName.match(/^C\.Care\s*\(([^)]+)\)/i);
         return {
           State: r['State'], City: r['City'], 'Product Description': r['Product Description'],
           'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoice Date'],
-          _division: divName === 'Generic' ? 'generic' : (ccareMatch ? 'ccare' : null),
-          _subtype: ccareMatch ? ccareMatch[1].trim() : null,
+          _division: isCCare ? 'ccare' : (divName === 'Generic' ? 'generic' : null),
+          _subtype: isCCare ? (subtypeMatch ? subtypeMatch[1].trim() : 'Unspecified') : null,
         };
       });
     } else if (isSchemaB) {
-      schemaLabel = 'Distributor-type export (Distribtor Type / Product type) — Generic only, no C.Care field in this format';
-      schemaCanHaveCCare = false;
-      rows = rawRows.map(r => ({
-        State: r['State'], City: r['Head Quarter'], 'Product Description': r['Product Description'],
-        'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoce Date'] || r['Invoice Date'],
-        _division: (String(r['Distribtor Type']||'').trim() === 'Generic Distributors' && String(r['Product type']||'').trim() === 'Other-Generic') ? 'generic' : null,
-        _subtype: null,
-      }));
+      schemaLabel = 'Distributor-type export (Distribtor Type / Product type)';
+      rows = rawRows.map(r => {
+        const code = parseInt(r['Product Code'], 10);
+        const isCCare = CCARE_CODES.has(code);
+        const isGenericTagged = String(r['Distribtor Type']||'').trim() === 'Generic Distributors' && String(r['Product type']||'').trim() === 'Other-Generic';
+        return {
+          State: r['State'], City: r['Head Quarter'], 'Product Description': r['Product Description'],
+          'Net Amount': r['Net Amount'], Quantity: r['Quantity'], 'Invoice Date': r['Invoce Date'] || r['Invoice Date'],
+          _division: isCCare ? 'ccare' : (isGenericTagged ? 'generic' : null),
+          // This schema has no Division Name, so it never carries a subtype label.
+          _subtype: isCCare ? 'Unspecified' : null,
+        };
+      });
     } else {
       throw new Error('Could not recognize this file\'s columns. Expected either "Division Name" or "Distribtor Type"/"Product type" columns. Check this is a SAP sales export.');
     }
@@ -290,10 +314,7 @@ window.uploadExcel = async function() {
 
     const genericRows = rows.filter(r => r._division === 'generic');
     const ccareRows = rows.filter(r => r._division === 'ccare');
-    log(`✓ Split: ${genericRows.length} Generic rows, ${ccareRows.length} C.Care rows (dropped ${rows.length - genericRows.length - ccareRows.length} from other divisions)`, 'ok');
-    if (!schemaCanHaveCCare && ccareRows.length === 0) {
-      log(`ℹ This file's schema can't carry C.Care data — only Generic will be uploaded.`, 'info');
-    }
+    log(`✓ Split: ${genericRows.length} Generic rows, ${ccareRows.length} C.Care rows (by product code, ${CCARE_CODES.size}-code list — not by Division Name/Distribtor Type label) — dropped ${rows.length - genericRows.length - ccareRows.length} rows from other divisions`, 'ok');
     prog(25);
 
     if (genericRows.length === 0) {
