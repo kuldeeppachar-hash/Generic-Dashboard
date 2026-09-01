@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PIL Generic Division — Sales Incentive Calculation Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+:root{
+  --navy:#0F2A47; --navy2:#16385c; --blue:#1E5C97; --accent:#1E5C97;
+  --grey:#f4f6f8; --grey2:#eef1f4; --border:#e1e6eb; --text:#1c2b3a; --muted:#6b7c8d;
+  --green:#1c8a52; --amber:#c07a11; --red:#b5312a; --darkgreen:#0d5c33;
+  --radius:10px;
+}
+*{box-sizing:border-box;}
+body{margin:0;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--grey);color:var(--text);}
+a{color:inherit;}
+.app{display:flex;min-height:100vh;}
+/* SIDEBAR */
+.sidebar{width:230px;background:var(--navy);color:#fff;flex-shrink:0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;overflow-y:auto;}
+.sidebar h1{font-size:15px;padding:20px 18px 4px;margin:0;font-weight:700;letter-spacing:.3px;}
+.sidebar .sub{padding:0 18px 16px;font-size:11px;color:#9fb4cc;border-bottom:1px solid rgba(255,255,255,.1);margin-bottom:8px;}
+.navitem{padding:11px 18px;font-size:13.5px;cursor:pointer;color:#c9d7e6;border-left:3px solid transparent;}
+.navitem:hover{background:rgba(255,255,255,.06);color:#fff;}
+.navitem.active{background:rgba(255,255,255,.09);color:#fff;border-left-color:#4d9ee0;font-weight:600;}
+.sidebar .back{margin:14px 18px;padding:8px 10px;font-size:12px;background:rgba(255,255,255,.08);border-radius:6px;text-align:center;cursor:pointer;}
+/* MAIN */
+.main{flex:1;min-width:0;padding:22px 26px 60px;}
+.topbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;flex-wrap:wrap;gap:10px;}
+.topbar h2{margin:0;font-size:20px;}
+.controls{display:flex;gap:10px;flex-wrap:wrap;align-items:center;}
+select, input[type=text], input[type=number], input[type=date]{
+  padding:8px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;background:#fff;color:var(--text);
+}
+button{cursor:pointer;border:none;border-radius:7px;padding:9px 14px;font-size:13px;font-weight:600;background:var(--navy);color:#fff;}
+button.secondary{background:#fff;color:var(--navy);border:1px solid var(--border);}
+button.ghost{background:transparent;color:var(--blue);border:1px solid var(--blue);}
+button:disabled{opacity:.45;cursor:not-allowed;}
+.card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:16px;}
+.card h3{margin:0 0 12px;font-size:14px;color:var(--navy);}
+.grid{display:grid;gap:14px;}
+.kpi-grid{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));}
+.kpi{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;}
+.kpi .label{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px;}
+.kpi .value{font-size:21px;font-weight:700;margin-top:6px;color:var(--navy);}
+.upload-zone{border:2px dashed #b9c8d6;border-radius:var(--radius);padding:34px;text-align:center;background:#fbfcfd;cursor:pointer;}
+.upload-zone.drag{background:#eaf2fa;border-color:var(--blue);}
+.upload-zone h4{margin:8px 0 4px;color:var(--navy);}
+.upload-zone p{color:var(--muted);font-size:12.5px;margin:0;}
+table{width:100%;border-collapse:collapse;font-size:12.5px;}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap;}
+th{background:var(--grey2);color:var(--navy);position:sticky;top:0;font-size:11.5px;text-transform:uppercase;letter-spacing:.3px;}
+tr:hover td{background:#f7fafc;}
+.pill{display:inline-block;padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700;}
+.pill.green{background:#e4f5ec;color:var(--green);}
+.pill.darkgreen{background:#d5f0e0;color:var(--darkgreen);}
+.pill.amber{background:#fbf1de;color:var(--amber);}
+.pill.red{background:#fbe7e5;color:var(--red);}
+.pill.grey{background:#eceff2;color:var(--muted);}
+.tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+.tab{padding:7px 14px;border-radius:20px;font-size:12.5px;background:#fff;border:1px solid var(--border);cursor:pointer;color:var(--muted);}
+.tab.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+.view{display:none;}
+.view.active{display:block;}
+.small{font-size:11.5px;color:var(--muted);}
+.flex{display:flex;gap:10px;align-items:center;flex-wrap:wrap;}
+.between{display:flex;justify-content:space-between;align-items:center;}
+label{font-size:12px;color:var(--muted);display:block;margin-bottom:3px;}
+.field{margin-bottom:10px;}
+.slab-row{display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:8px;margin-bottom:8px;align-items:center;}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(15,25,40,.55);z-index:50;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto;}
+.modal-bg.open{display:flex;}
+.modal{background:#fff;border-radius:12px;max-width:640px;width:100%;padding:22px;max-height:90vh;overflow:auto;}
+.modal .close{float:right;cursor:pointer;font-size:18px;color:var(--muted);}
+.calc-line{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--border);font-size:13px;}
+.calc-line.total{font-weight:700;color:var(--navy);border-bottom:none;border-top:2px solid var(--navy);margin-top:4px;padding-top:10px;}
+.warn-box{background:#fff8ec;border:1px solid #f0d9a8;border-radius:8px;padding:10px 14px;font-size:12.5px;color:#7a5410;margin-bottom:14px;}
+.warn-box.error{background:#fdecea;border-color:#f2b3ac;color:#7a221c;}
+.mapping-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px;align-items:center;}
+.chart-wrap{height:280px;position:relative;}
+.badge-count{background:var(--red);color:#fff;font-size:10px;border-radius:10px;padding:1px 6px;margin-left:6px;}
+.insight-list li{margin-bottom:6px;font-size:13px;}
+input[type=checkbox]{margin-right:6px;}
+.mono{font-family:ui-monospace,Menlo,Consolas,monospace;}
+@media print{.sidebar,.topbar .controls,.no-print{display:none !important;} .main{padding:0;} .card{border:none;box-shadow:none;}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <h1>PIL GENERIC DIVISION</h1>
+    <div class="sub">Sales Incentive Calculation Dashboard</div>
+    <div class="navitem active" data-view="dashboard">Dashboard</div>
+    <div class="navitem" data-view="register">Incentive Register</div>
+    <div class="navitem" data-view="employee">Employee Details</div>
+    <div class="navitem" data-view="targets">Target Management</div>
+    <div class="navitem" data-view="rules">Incentive Rules</div>
+    <div class="navitem" data-view="adjustments">Adjustments</div>
+    <div class="navitem" data-view="exclusions">Exclusions</div>
+    <div class="navitem" data-view="whatif">What-If Calculator</div>
+    <div class="navitem" data-view="management">Management Analysis</div>
+    <div class="navitem" data-view="exports">Exports</div>
+    <div class="navitem" data-view="settings">Settings <span id="errBadge" class="badge-count" style="display:none;">0</span></div>
+    <a href="https://kuldeeppachar-hash.github.io/Generic-Dashboard/dashboard.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
+      <div class="back">&larr; Sales Dashboard (opens in new tab)</div>
+    </a>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+    <div class="topbar">
+      <h2 id="viewTitle">Dashboard</h2>
+      <div class="controls">
+        <select id="monthFilter"><option value="ALL">All Months (YTD)</option></select>
+        <select id="stateFilter"><option value="ALL">All States</option></select>
+        <select id="hqFilter"><option value="ALL">All HQ</option></select>
+        <select id="asmFilter"><option value="ALL">All ASM</option></select>
+        <select id="rsmFilter"><option value="ALL">All RSM</option></select>
+        <select id="designationFilter"><option value="ALL">All Designations</option></select>
+        <select id="eligFilter"><option value="ALL">All Eligibility</option></select>
+        <button class="secondary" id="recalcBtn">Recalculate</button>
+      </div>
+    </div>
+
+    <div id="warnArea"></div>
+
+    <!-- DASHBOARD -->
+    <div class="view active" id="view-dashboard">
+      <div class="card">
+        <h3>1. Upload Sales Data</h3>
+        <div class="upload-zone" id="salesDrop">
+          <h4>UPLOAD SALES DATA</h4>
+          <p>Drag & drop or click — .xlsx / .xls / .csv</p>
+          <input type="file" id="salesFile" accept=".xlsx,.xls,.csv" style="display:none;">
+        </div>
+        <div id="salesFileInfo" class="small" style="margin-top:8px;"></div>
+        <div class="flex" style="margin-top:12px;">
+          <button class="secondary" id="demoBtn">Load Demo Data</button>
+          <span class="small">Demo data is clearly labeled — not for actual incentive payment.</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>2. Upload Employee Master (optional)</h3>
+        <div class="upload-zone" id="empDrop">
+          <h4>UPLOAD EMPLOYEE MASTER</h4>
+          <p>Employee Code, Name, Designation, HQ, State, ASM, RSM, Joining Date, Exit Date, Monthly Target, Active</p>
+          <input type="file" id="empFile" accept=".xlsx,.xls,.csv" style="display:none;">
+        </div>
+        <div id="empFileInfo" class="small" style="margin-top:8px;"></div>
+      </div>
+
+      <div class="grid kpi-grid" id="kpiGrid"></div>
+
+      <div class="card">
+        <h3>Target vs Actual Sales</h3>
+        <div class="chart-wrap"><canvas id="chartTargetActual"></canvas></div>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr;">
+        <div class="card"><h3>Achievement Distribution</h3><div class="chart-wrap"><canvas id="chartAchDist"></canvas></div></div>
+        <div class="card"><h3>Incentive Payable by ASM</h3><div class="chart-wrap"><canvas id="chartByAsm"></canvas></div></div>
+      </div>
+      <div class="grid" style="grid-template-columns:1fr 1fr;">
+        <div class="card"><h3>Top 10 Incentive Earners</h3><div class="chart-wrap"><canvas id="chartTop10"></canvas></div></div>
+        <div class="card"><h3>Employees Not Eligible</h3><div class="chart-wrap"><canvas id="chartNotElig"></canvas></div></div>
+      </div>
+      <div class="card"><h3>Monthly Incentive Liability Trend</h3><div class="chart-wrap"><canvas id="chartTrend"></canvas></div></div>
+
+      <div class="card">
+        <h3>Management Summary</h3>
+        <ul class="insight-list" id="insightList"></ul>
+      </div>
+    </div>
+
+    <!-- COLUMN MAPPING (shown as overlay when needed) -->
+    <div class="view" id="view-mapping">
+      <div class="card">
+        <h3>Column Mapping — Sales Data</h3>
+        <p class="small">Match your file's columns to the fields the engine needs. Unmapped optional fields are simply skipped.</p>
+        <div id="mappingSheetSelect" class="field"></div>
+        <div id="mappingRows"></div>
+        <button id="confirmMappingBtn" style="margin-top:10px;">Confirm Mapping & Process</button>
+      </div>
+    </div>
+
+    <!-- REGISTER -->
+    <div class="view" id="view-register">
+      <div class="tabs">
+        <div class="tab active" data-hier="SO">SO VIEW</div>
+        <div class="tab" data-hier="ASE">ASE VIEW</div>
+        <div class="tab" data-hier="ASM">ASM VIEW</div>
+        <div class="tab" data-hier="RSM">RSM VIEW</div>
+      </div>
+      <div class="card">
+        <div class="between" style="margin-bottom:10px;">
+          <h3 style="margin:0;">Incentive Calculation Register</h3>
+          <div class="flex">
+            <input type="text" id="registerSearch" placeholder="Search employee / code...">
+            <button class="secondary" id="exportRegisterBtn">Export Excel</button>
+            <button class="secondary" id="printRegisterBtn">Print</button>
+          </div>
+        </div>
+        <div style="overflow:auto;max-height:640px;">
+          <table id="registerTable">
+            <thead><tr>
+              <th>Rank</th><th>Employee</th><th>Code</th><th>Designation</th><th>HQ</th><th>ASM</th><th>RSM</th>
+              <th>Target</th><th>Net Sales</th><th>Achv%</th><th>Eligibility</th><th>Slab</th><th>Rate</th>
+              <th>Gross Inc.</th><th>Adjustments</th><th>Final Incentive</th><th></th>
+            </tr></thead>
+            <tbody id="registerBody"></tbody>
+          </table>
+        </div>
+        <div class="flex between" style="margin-top:10px;">
+          <span class="small" id="registerPageInfo"></span>
+          <div class="flex">
+            <button class="secondary" id="pagePrev">Prev</button>
+            <button class="secondary" id="pageNext">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMPLOYEE DETAIL -->
+    <div class="view" id="view-employee">
+      <div class="card" id="empMasterHint" style="display:none;">
+        <div class="between">
+          <div>
+            <h3 style="margin:0 0 4px;">No Employee Master uploaded yet</h3>
+            <p class="small" style="margin:0;">Upload Employee Code, Name, Designation, HQ, State, ASM, RSM, Joining Date, Exit Date, Monthly Target, Active — from the Dashboard tab.</p>
+          </div>
+          <button class="secondary" id="gotoEmpUploadBtn">Go to Upload</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Select Employee</h3>
+        <select id="empSelect" style="min-width:260px;"></select>
+      </div>
+      <div id="empDetailBody"></div>
+    </div>
+
+    <!-- TARGETS -->
+    <div class="view" id="view-targets">
+      <div class="card">
+        <div class="between"><h3 style="margin:0;">Target Master</h3>
+          <div class="flex">
+            <input type="file" id="targetFile" accept=".xlsx,.xls,.csv" style="display:none;">
+            <button class="secondary" id="targetUploadBtn">Bulk Upload</button>
+            <button class="secondary" id="targetExportBtn">Export</button>
+            <button id="addTargetBtn">+ Add Employee Target</button>
+          </div>
+        </div>
+        <table id="targetTable">
+          <thead><tr><th>Code</th><th>Name</th><th>HQ</th><th>Month</th><th>Target</th><th>Target Type</th><th></th></tr></thead>
+          <tbody id="targetBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- RULES -->
+    <div class="view" id="view-rules">
+      <div class="card">
+        <h3>Incentive Rule Configuration</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr;">
+          <div class="field"><label>Calculation Mode</label>
+            <select id="cfgMode">
+              <option value="A">A — Sales Percentage</option>
+              <option value="B">B — Target Differential (excess only)</option>
+              <option value="C">C — Fixed Slab Amount</option>
+              <option value="D">D — Progressive Slab %</option>
+            </select>
+          </div>
+          <div class="field"><label>Minimum Eligibility Achievement %</label><input type="number" id="cfgMinElig" value="80"></div>
+          <div class="field"><label>Target Basis</label>
+            <select id="cfgTargetBasis"><option value="monthly">Monthly Target</option><option value="ytd">YTD Target</option></select>
+          </div>
+          <div class="field"><label>Sales Basis</label>
+            <select id="cfgSalesBasis"><option value="net">Net Amount</option><option value="qty">Quantity</option></select>
+          </div>
+          <div class="field"><label>Rounding</label>
+            <select id="cfgRounding"><option value="rupee">Nearest Rupee</option><option value="none">No Rounding</option><option value="10">Nearest 10</option><option value="100">Nearest 100</option></select>
+          </div>
+          <div class="field"><label>Joining/Exit Target Rule</label>
+            <select id="cfgProration"><option value="full">Full Month Target</option><option value="prorated">Prorated Target</option></select>
+          </div>
+        </div>
+
+        <h3 style="margin-top:18px;">Slabs / Rate Table</h3>
+        <p class="small">For Mode A/B: "Rate %" is the incentive % applied. For Mode C: "Rate %" field is treated as a fixed ₹ amount per employee. For Mode D each slab's rate applies to sales falling within that band (progressive).</p>
+        <div id="slabRows"></div>
+        <button class="secondary" id="addSlabBtn">+ Add Slab</button>
+
+        <h3 style="margin-top:18px;">Actions</h3>
+        <div class="flex">
+          <button id="saveRulesBtn">Save Rules</button>
+          <button class="secondary" id="resetRulesBtn">Reset to Default</button>
+          <button class="secondary" id="exportRulesBtn">Export Rules (JSON)</button>
+          <input type="file" id="importRulesFile" accept=".json" style="display:none;">
+          <button class="secondary" id="importRulesBtn">Import Rules</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ADJUSTMENTS -->
+    <div class="view" id="view-adjustments">
+      <div class="card">
+        <div class="between"><h3 style="margin:0;">Adjustment Management</h3>
+          <button id="addAdjBtn">+ Add Adjustment</button>
+        </div>
+        <table id="adjTable">
+          <thead><tr><th>Employee Code</th><th>Date</th><th>Type</th><th>Reason</th><th>Amount (₹)</th><th>Remarks</th><th></th></tr></thead>
+          <tbody id="adjBody"></tbody>
+        </table>
+        <p class="small">Types: Sales Return, Expiry Return, Credit Note, Scheme Adjustment, Manual Adjustment. All amounts entered here are subtracted from Gross Sales to derive Net Eligible Sales.</p>
+      </div>
+    </div>
+
+    <!-- EXCLUSIONS -->
+    <div class="view" id="view-exclusions">
+      <div class="card">
+        <h3>Product / Brand / Division Exclusions</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr 1fr auto;">
+          <input type="text" id="exclProduct" placeholder="Product name (optional)">
+          <input type="text" id="exclBrand" placeholder="Brand (optional)">
+          <input type="text" id="exclDivision" placeholder="Division/Subtype (optional)">
+          <button id="addExclBtn">Add Exclusion</button>
+        </div>
+        <table id="exclTable" style="margin-top:14px;">
+          <thead><tr><th>Product</th><th>Brand</th><th>Division/Subtype</th><th></th></tr></thead>
+          <tbody id="exclBody"></tbody>
+        </table>
+        <p class="small">Excluded rows are never deleted from raw data — they are flagged INCENTIVE_EXCLUDED and shown in the audit trail.</p>
+      </div>
+    </div>
+
+    <!-- WHAT IF -->
+    <div class="view" id="view-whatif">
+      <div class="card">
+        <h3>What-If Incentive Calculator</h3>
+        <div class="grid" style="grid-template-columns:1fr 1fr;">
+          <div class="field"><label>Target (₹)</label><input type="number" id="wiTarget" value="500000"></div>
+          <div class="field"><label>Current Sales (₹)</label><input type="number" id="wiSales" value="450000"></div>
+          <div class="field"><label>Additional Sales (₹)</label><input type="number" id="wiAdditional" value="0"></div>
+          <div class="field"><label>Calculation Mode</label>
+            <select id="wiMode"><option value="config">Use Configured Mode</option><option value="A">A — Sales %</option><option value="B">B — Differential</option><option value="C">C — Fixed Slab</option><option value="D">D — Progressive</option></select>
+          </div>
+        </div>
+        <button id="wiCalcBtn">Calculate</button>
+        <div id="wiResult" style="margin-top:14px;"></div>
+      </div>
+    </div>
+
+    <!-- MANAGEMENT -->
+    <div class="view" id="view-management">
+      <div class="grid kpi-grid" id="liabilityKpis"></div>
+      <div class="card">
+        <h3>Sales vs Incentive Cost</h3>
+        <div class="chart-wrap"><canvas id="chartSalesVsCost"></canvas></div>
+      </div>
+      <div class="card">
+        <h3>Hierarchy Rollup</h3>
+        <table id="hierTable">
+          <thead><tr><th>Manager</th><th>Role</th><th>Team Target</th><th>Team Sales</th><th>Achv%</th><th>Eligible Count</th><th>Total Team Incentive</th></tr></thead>
+          <tbody id="hierBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- EXPORTS -->
+    <div class="view" id="view-exports">
+      <div class="card">
+        <h3>Exports</h3>
+        <div class="flex">
+          <button id="exp1">Export Incentive Register (Excel)</button>
+          <button id="exp2">Export Management Summary (Excel)</button>
+          <button id="exp3">Export CSV</button>
+          <button class="secondary" id="exp4">Print Incentive Register</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div class="view" id="view-settings">
+      <div class="card">
+        <h3>Data Validation</h3>
+        <div id="settingsWarnDetail"></div>
+      </div>
+      <div class="card">
+        <h3>Duplicate Protection</h3>
+        <div id="dupStats" class="grid kpi-grid"></div>
+      </div>
+      <div class="card">
+        <h3>Reset</h3>
+        <button class="secondary" id="wipeAllBtn">Clear All Uploaded Data & Config</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- CALCULATION MODAL -->
+<div class="modal-bg" id="calcModal">
+  <div class="modal">
+    <span class="close" id="calcModalClose">&times;</span>
+    <div id="calcModalBody"></div>
+  </div>
+</div>
+
+<script>
+/* ===================== 37. CENTRAL CONFIG ===================== */
+const DEFAULT_CONFIG = {
+  minimumEligibility: 80,
+  calculationMode: "D",
+  targetBasis: "monthly",
+  salesBasis: "net",
+  rounding: "rupee",
+  proration: "full",
+  slabs: [
+    {min:0,   max:79.99,  rate:0, label:"Not Eligible"},
+    {min:80,  max:89.99,  rate:0.5, label:"Slab 1"},
+    {min:90,  max:99.99,  rate:0.75,label:"Slab 2"},
+    {min:100, max:109.99, rate:1.0, label:"Slab 3"},
+    {min:110, max:119.99, rate:1.25,label:"Slab 4"},
+    {min:120, max:99999,  rate:1.5, label:"Slab 5"}
+  ]
+};
+let CONFIG = loadJSON('inc_config', JSON.parse(JSON.stringify(DEFAULT_CONFIG)));
+let ADJUSTMENTS = loadJSON('inc_adjustments', []);
+let EXCLUSIONS = loadJSON('inc_exclusions', []);
+let TARGET_MASTER = loadJSON('inc_targets', []);
+let EMP_MASTER = loadJSON('inc_empmaster', []);
+
+function loadJSON(key, fallback){
+  try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch(e){ return fallback; }
+}
+function saveJSON(key, val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){ console.error(e); } }
+
+/* ===================== APPLICATION STATE ===================== */
+// Layer 1: RAW_SALES — untouched parsed rows
+// Layer 2: NORMALIZED_SALES — mapped + validated
+// Layer 3: INCENTIVE_DATA — calculated per employee/month
+let RAW_SALES = [];
+let NORMALIZED_SALES = [];
+let INCENTIVE_DATA = [];
+let VALIDATION_ERRORS = [];
+let DUP_STATS = {total:0, valid:0, duplicate:0, invalid:0, processed:0};
+let CURRENT_WORKBOOK = null;
+let CURRENT_MAPPING = {};
+let PENDING_MAPPING_TARGET = null; // 'sales' | 'target'
+let charts = {};
+let registerPage = 0;
+const PAGE_SIZE = 50;
+let activeHier = 'SO';
+
+const FIELD_DEFS = [
+  {key:'date', label:'Date / Billing / Invoice Date', required:true, aliases:['date','billing date','invoice date','bill date']},
+  {key:'empCode', label:'Employee Code', required:false, aliases:['employee code','emp code','so code','code']},
+  {key:'empName', label:'Employee / SO Name', required:true, aliases:['so name','employee name','name','sales officer']},
+  {key:'designation', label:'Designation', required:false, aliases:['designation','role']},
+  {key:'hq', label:'HQ', required:false, aliases:['hq','headquarter']},
+  {key:'state', label:'State', required:false, aliases:['state']},
+  {key:'asm', label:'ASM', required:false, aliases:['asm']},
+  {key:'rsm', label:'RSM', required:false, aliases:['rsm']},
+  {key:'product', label:'Product', required:false, aliases:['product','product name']},
+  {key:'brand', label:'Brand', required:false, aliases:['brand']},
+  {key:'division', label:'Division / Subtype', required:false, aliases:['division','subtype']},
+  {key:'qty', label:'Quantity', required:false, aliases:['quantity','qty']},
+  {key:'netAmount', label:'Net / Sales Amount', required:true, aliases:['net amount','sales amount','amount','net value','value']},
+  {key:'invoiceNo', label:'Invoice / Bill No.', required:false, aliases:['invoice','invoice no','bill no']},
+  {key:'target', label:'Target (if present in sales file)', required:false, aliases:['target']},
+];
+
+/* ===================== UTIL ===================== */
+function inr(num){
+  if(num===null||num===undefined||isNaN(num)) return '—';
+  const n = Math.round(num*100)/100;
+  const neg = n<0; let x = Math.abs(n).toFixed(2).split('.');
+  let intPart = x[0], dec = x[1];
+  let last3 = intPart.slice(-3), rest = intPart.slice(0,-3);
+  if(rest!=='') last3 = ',' + last3;
+  let formatted = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + last3;
+  return (neg?'-':'') + '₹' + formatted + (dec!=='00' ? '.'+dec : '');
+}
+function pct(n){ if(n===null||n===undefined||isNaN(n)) return '—'; return n.toFixed(2)+'%'; }
+function monthKey(d){ if(!(d instanceof Date) || isNaN(d)) return 'UNK'; return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+function monthLabel(mk){ if(mk==='UNK') return 'Unknown'; const [y,m]=mk.split('-'); const names=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return names[+m-1]+' '+y; }
+function parseDate(v){
+  if(v instanceof Date) return v;
+  if(typeof v==='number'){ const d = XLSX.SSF.parse_date_code(v); if(d) return new Date(d.y,d.m-1,d.d); }
+  if(typeof v==='string'){ const d = new Date(v); if(!isNaN(d)) return d; }
+  return null;
+}
+function round(v, mode){
+  mode = mode || CONFIG.rounding;
+  if(mode==='none') return v;
+  if(mode==='rupee') return Math.round(v);
+  if(mode==='10') return Math.round(v/10)*10;
+  if(mode==='100') return Math.round(v/100)*100;
+  return Math.round(v);
+}
+function normKey(s){ return (s||'').toString().trim().toLowerCase(); }
+
+/* ===================== FILE UPLOAD / DRAG-DROP ===================== */
+function wireDrop(zoneId, inputId, handler){
+  const zone = document.getElementById(zoneId), input = document.getElementById(inputId);
+  zone.addEventListener('click', ()=>input.click());
+  input.addEventListener('change', e=>{ if(e.target.files[0]) handler(e.target.files[0]); });
+  ['dragover','dragenter'].forEach(ev=>zone.addEventListener(ev, e=>{e.preventDefault(); zone.classList.add('drag');}));
+  ['dragleave','drop'].forEach(ev=>zone.addEventListener(ev, e=>{e.preventDefault(); zone.classList.remove('drag');}));
+  zone.addEventListener('drop', e=>{ if(e.dataTransfer.files[0]) handler(e.dataTransfer.files[0]); });
+}
+wireDrop('salesDrop','salesFile', f=>handleSalesFile(f));
+wireDrop('empDrop','empFile', f=>handleEmpFile(f));
+
+function readWorkbook(file, cb){
+  const reader = new FileReader();
+  reader.onload = e=>{
+    const data = new Uint8Array(e.target.result);
+    const wb = XLSX.read(data, {type:'array', cellDates:true});
+    cb(wb);
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function handleSalesFile(file){
+  document.getElementById('salesFileInfo').textContent = 'Loaded: '+file.name;
+  readWorkbook(file, wb=>{
+    CURRENT_WORKBOOK = wb; PENDING_MAPPING_TARGET = 'sales';
+    openMappingScreen(wb);
+  });
+}
+function handleEmpFile(file){
+  document.getElementById('empFileInfo').textContent = 'Loaded: '+file.name;
+  readWorkbook(file, wb=>{
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:null});
+    EMP_MASTER = rows.map(r=>{
+      const get = (...keys)=>{ for(const k of keys){ const found = Object.keys(r).find(rk=>normKey(rk)===normKey(k)); if(found) return r[found]; } return null; };
+      return {
+        empCode: get('Employee Code','Code'), empName: get('Employee Name','Name'),
+        designation: get('Designation'), hq: get('HQ'), state: get('State'),
+        asm: get('ASM'), rsm: get('RSM'),
+        joiningDate: parseDate(get('Joining Date')), exitDate: parseDate(get('Exit Date')),
+        monthlyTarget: Number(get('Monthly Target','Target'))||0,
+        active: (get('Active/Inactive','Active')||'Active').toString().toLowerCase().indexOf('inactive')===-1
+      };
+    });
+    saveJSON('inc_empmaster', EMP_MASTER);
+    renderEmployeeSelect();
+    runFullRecalc();
+  });
+}
+
+/* ===================== COLUMN MAPPING SCREEN ===================== */
+function openMappingScreen(wb){
+  switchView('mapping');
+  const sheetDiv = document.getElementById('mappingSheetSelect');
+  sheetDiv.innerHTML = '<label>Select Sheet</label><select id="sheetSelectDropdown">'+
+    wb.SheetNames.map(s=>`<option value="${s}">${s}</option>`).join('')+'</select>';
+  document.getElementById('sheetSelectDropdown').addEventListener('change', ()=>renderMappingRows(wb));
+  renderMappingRows(wb);
+}
+function renderMappingRows(wb){
+  const sheetName = document.getElementById('sheetSelectDropdown').value;
+  const sheet = wb.Sheets[sheetName];
+  const rows = XLSX.utils.sheet_to_json(sheet, {defval:null, raw:true});
+  if(!rows.length){ document.getElementById('mappingRows').innerHTML = '<p class="warn-box error">Sheet has no data rows.</p>'; return; }
+  const headers = Object.keys(rows[0]);
+  CURRENT_WORKBOOK._rows = rows;
+  let html = '';
+  FIELD_DEFS.forEach(f=>{
+    let auto = headers.find(h=>f.aliases.includes(normKey(h))) || headers.find(h=>normKey(h).includes(f.key.toLowerCase()));
+    html += `<div class="mapping-row"><label>${f.label}${f.required?' *':''}</label>
+      <select data-field="${f.key}" class="mapSelect">
+        <option value="">— Not mapped —</option>
+        ${headers.map(h=>`<option value="${h}" ${h===auto?'selected':''}>${h}</option>`).join('')}
+      </select></div>`;
+  });
+  document.getElementById('mappingRows').innerHTML = html;
+}
+document.getElementById('confirmMappingBtn').addEventListener('click', ()=>{
+  const mapping = {};
+  document.querySelectorAll('.mapSelect').forEach(sel=>{ if(sel.value) mapping[sel.dataset.field] = sel.value; });
+  const missingRequired = FIELD_DEFS.filter(f=>f.required && !mapping[f.key]);
+  if(missingRequired.length){
+    alert('Please map required fields: '+missingRequired.map(f=>f.label).join(', '));
+    return;
+  }
+  CURRENT_MAPPING = mapping;
+  processSalesRows(CURRENT_WORKBOOK._rows, mapping);
+  switchView('dashboard');
+});
+
+/* ===================== NORMALIZE + VALIDATE + DEDUPE ===================== */
+function processSalesRows(rows, mapping){
+  RAW_SALES = rows;
+  VALIDATION_ERRORS = [];
+  const seenKeys = new Set();
+  let valid=0, dup=0, invalid=0;
+  NORMALIZED_SALES = [];
+  rows.forEach((r,i)=>{
+    const g = (k)=> mapping[k] ? r[mapping[k]] : null;
+    const dateRaw = g('date'); const date = parseDate(dateRaw);
+    const empName = g('empName'); const netAmount = Number(g('netAmount'));
+    let rowError = null;
+    if(!date) rowError = 'Invalid/missing date';
+    else if(!empName) rowError = 'Missing employee name';
+    else if(isNaN(netAmount)) rowError = 'Invalid sales amount';
+
+    const invoiceNo = g('invoiceNo');
+    const dedupeKey = invoiceNo ? ('INV:'+invoiceNo) :
+      ['K', normKey(empName), monthKey(date), g('product'), netAmount].join('|');
+
+    if(rowError){
+      invalid++;
+      VALIDATION_ERRORS.push({row:i+2, issue:rowError, empName, netAmount:g('netAmount')});
+      return;
+    }
+    if(seenKeys.has(dedupeKey)){ dup++; return; }
+    seenKeys.add(dedupeKey);
+    valid++;
+
+    const empCode = g('empCode') || ('AUTO-'+normKey(empName));
+    const excluded = isExcluded(g('product'), g('brand'), g('division'));
+
+    NORMALIZED_SALES.push({
+      date, month: monthKey(date),
+      empCode, empName,
+      designation: g('designation') || inferDesignation(empCode, empName),
+      hq: g('hq'), state: g('state'), asm: g('asm'), rsm: g('rsm'),
+      product: g('product'), brand: g('brand'), division: g('division'),
+      qty: Number(g('qty'))||0,
+      netAmount: netAmount,
+      excluded: excluded.flag, exclusionReason: excluded.reason,
+      target: Number(g('target'))||null
+    });
+  });
+  DUP_STATS = {total: rows.length, valid, duplicate: dup, invalid, processed: NORMALIZED_SALES.length};
+  populateFilterOptions();
+  runFullRecalc();
+}
+function inferDesignation(code, name){
+  const m = EMP_MASTER.find(e=>normKey(e.empCode)===normKey(code) || normKey(e.empName)===normKey(name));
+  return m ? m.designation : 'SO';
+}
+function isExcluded(product, brand, division){
+  for(const ex of EXCLUSIONS){
+    if(ex.product && normKey(ex.product)===normKey(product)) return {flag:true, reason:'Excluded product: '+ex.product};
+    if(ex.brand && normKey(ex.brand)===normKey(brand)) return {flag:true, reason:'Excluded brand: '+ex.brand};
+    if(ex.division && normKey(ex.division)===normKey(division)) return {flag:true, reason:'Excluded division: '+ex.division};
+  }
+  return {flag:false, reason:null};
+}
+
+/* ===================== DEMO DATA ===================== */
+function loadDemoData(){
+  const hqs = ['Gurugram','Delhi','Jaipur','Lucknow','Chandigarh'];
+  const asms = ['R. Mehta','S. Kapoor'];
+  const rsms = ['A. Verma'];
+  const states = {'Gurugram':'Haryana','Delhi':'Delhi','Jaipur':'Rajasthan','Lucknow':'Uttar Pradesh','Chandigarh':'Punjab'};
+  const products = ['DermaCare Cream','ColdRelief Syrup','PainAway Gel','ImmunoBoost Tabs','VitaKids Drops'];
+  const months = ['2026-06','2026-07','2026-08'];
+  let rows = [];
+  EMP_MASTER = [];
+  for(let i=1;i<=20;i++){
+    const hq = hqs[i%hqs.length];
+    const asm = asms[i%asms.length];
+    const code = 'SO'+String(1000+i);
+    const name = 'Sales Officer '+i;
+    const target = 400000 + (i%5)*50000;
+    EMP_MASTER.push({empCode:code, empName:name, designation:'SO', hq, state:states[hq], asm, rsm:rsms[0],
+      joiningDate:new Date(2024,0,1), exitDate:null, monthlyTarget:target, active:true});
+    months.forEach(mk=>{
+      const [y,m] = mk.split('-').map(Number);
+      const achFactor = 0.6 + ((i*13+m*7)%60)/100; // spread 0.6x-1.2x
+      let remaining = target*achFactor;
+      const nLines = 4;
+      for(let l=0;l<nLines;l++){
+        const amt = Math.round(remaining/(nLines-l) * (0.7+Math.random()*0.6));
+        remaining -= amt;
+        rows.push({
+          'Date': new Date(y, m-1, 3+l*6),
+          'Employee Code': code, 'SO Name': name, 'Designation':'SO', 'HQ':hq, 'State':states[hq],
+          'ASM':asm, 'RSM':rsms[0], 'Product': products[l%products.length], 'Brand': products[l%products.length].split(' ')[0],
+          'Division':'Generic', 'Quantity': 10+l*3, 'Net Amount': Math.max(amt,1000),
+          'Invoice No': 'DEMO-'+code+'-'+mk+'-'+l
+        });
+      }
+      // occasional return
+      if(i%4===0){
+        ADJUSTMENTS.push({empCode:code, date:mk+'-20', type:'Sales Return', reason:'Damaged stock', amount: 3000+i*10, remarks:'Demo'});
+      }
+    });
+  }
+  saveJSON('inc_empmaster', EMP_MASTER);
+  saveJSON('inc_adjustments', ADJUSTMENTS);
+  const mapping = {date:'Date', empCode:'Employee Code', empName:'SO Name', designation:'Designation', hq:'HQ',
+    state:'State', asm:'ASM', rsm:'RSM', product:'Product', brand:'Brand', division:'Division', qty:'Quantity', netAmount:'Net Amount', invoiceNo:'Invoice No'};
+  document.getElementById('salesFileInfo').innerHTML = '<b style="color:#b5312a;">DEMO DATA LOADED — NOT FOR ACTUAL INCENTIVE PAYMENT</b>';
+  processSalesRows(rows, mapping);
+  renderEmployeeSelect();
+  renderAdjTable();
+}
+document.getElementById('demoBtn').addEventListener('click', loadDemoData);
+document.getElementById('gotoEmpUploadBtn').addEventListener('click', ()=>{
+  switchView('dashboard');
+  document.getElementById('empDrop').scrollIntoView({behavior:'smooth', block:'center'});
+});
+
+/* ===================== CALCULATION ENGINE ===================== */
+function getEmpInfo(code, name){
+  return EMP_MASTER.find(e=>normKey(e.empCode)===normKey(code)) ||
+         EMP_MASTER.find(e=>normKey(e.empName)===normKey(name)) || null;
+}
+function getTargetFor(code, name, month){
+  const explicit = TARGET_MASTER.find(t=>normKey(t.empCode)===normKey(code) && t.month===month);
+  if(explicit) return explicit.target;
+  const emp = getEmpInfo(code, name);
+  if(emp && emp.monthlyTarget) return emp.monthlyTarget;
+  return 0;
+}
+function slabFor(achv){
+  return CONFIG.slabs.find(s=>achv>=s.min && achv<=s.max) || CONFIG.slabs[CONFIG.slabs.length-1];
+}
+function computeIncentiveAmount(netSales, target, achv){
+  const mode = CONFIG.calculationMode;
+  if(target<=0) return {gross:0, rate:0, slabLabel:'TARGET NOT CONFIGURED'};
+  if(mode==='A'){
+    const slab = slabFor(achv);
+    return {gross: round(netSales * (slab.rate/100)), rate: slab.rate, slabLabel: slab.label};
+  }
+  if(mode==='B'){
+    const slab = slabFor(achv);
+    const excess = Math.max(0, netSales-target);
+    return {gross: round(excess * (slab.rate/100)), rate: slab.rate, slabLabel: slab.label};
+  }
+  if(mode==='C'){
+    const slab = slabFor(achv);
+    return {gross: round(slab.rate), rate: slab.rate, slabLabel: slab.label + ' (fixed)'};
+  }
+  if(mode==='D'){
+    // progressive: sum contribution across bands up to achv
+    let gross = 0, lastLabel='';
+    for(const s of CONFIG.slabs){
+      if(achv <= s.min) break;
+      const bandTopAchv = Math.min(achv, s.max);
+      const bandSalesLow = target*(s.min/100);
+      const bandSalesHigh = target*(Math.min(bandTopAchv,s.max)/100);
+      const bandAmt = Math.max(0, bandSalesHigh - bandSalesLow);
+      gross += bandAmt * (s.rate/100);
+      lastLabel = s.label;
+    }
+    const slab = slabFor(achv);
+    return {gross: round(gross), rate: slab.rate, slabLabel: slab.label + ' (progressive, cumulative)'};
+  }
+  return {gross:0, rate:0, slabLabel:'—'};
+}
+function proratedTarget(fullTarget, joiningDate, exitDate, month){
+  if(CONFIG.proration==='full') return fullTarget;
+  const [y,m] = month.split('-').map(Number);
+  const daysInMonth = new Date(y, m, 0).getDate();
+  let startDay = 1, endDay = daysInMonth;
+  if(joiningDate && joiningDate.getFullYear()===y && joiningDate.getMonth()+1===m) startDay = joiningDate.getDate();
+  if(exitDate && exitDate.getFullYear()===y && exitDate.getMonth()+1===m) endDay = exitDate.getDate();
+  const eligibleDays = Math.max(0, endDay-startDay+1);
+  return round(fullTarget * eligibleDays / daysInMonth, 'rupee');
+}
+
+function runFullRecalc(){
+  INCENTIVE_DATA = [];
+  const monthFilter = document.getElementById('monthFilter').value;
+
+  // Group normalized sales by (empCode, month), respecting exclusions
+  const groups = {};
+  NORMALIZED_SALES.forEach(r=>{
+    if(monthFilter!=='ALL' && r.month!==monthFilter) return;
+    const key = r.empCode+'|'+r.month;
+    if(!groups[key]) groups[key] = {empCode:r.empCode, empName:r.empName, month:r.month, rows:[]};
+    groups[key].rows.push(r);
+  });
+
+  // Also include employees with a target but zero sales this month (NO SALES DATA)
+  const monthsPresent = monthFilter==='ALL' ? [...new Set(NORMALIZED_SALES.map(r=>r.month))] : [monthFilter];
+  EMP_MASTER.forEach(emp=>{
+    monthsPresent.forEach(mk=>{
+      const key = emp.empCode+'|'+mk;
+      if(!groups[key]) groups[key] = {empCode:emp.empCode, empName:emp.empName, month:mk, rows:[]};
+    });
+  });
+
+  Object.values(groups).forEach(g=>{
+    const emp = getEmpInfo(g.empCode, g.empName) || {};
+    const grossSales = g.rows.filter(r=>!r.excluded).reduce((s,r)=>s + (CONFIG.salesBasis==='qty'? r.qty : r.netAmount), 0);
+    const excludedSales = g.rows.filter(r=>r.excluded).reduce((s,r)=>s+r.netAmount,0);
+    const adj = ADJUSTMENTS.filter(a=>normKey(a.empCode)===normKey(g.empCode) && (a.date||'').startsWith(g.month));
+    const returns = adj.filter(a=>a.type==='Sales Return'||a.type==='Expiry Return').reduce((s,a)=>s+Number(a.amount||0),0);
+    const creditNotes = adj.filter(a=>a.type==='Credit Note').reduce((s,a)=>s+Number(a.amount||0),0);
+    const otherAdj = adj.filter(a=>a.type!=='Sales Return'&&a.type!=='Expiry Return'&&a.type!=='Credit Note').reduce((s,a)=>s+Number(a.amount||0),0);
+    const netEligibleSales = Math.max(0, grossSales - returns - creditNotes - otherAdj);
+
+    const rawTarget = getTargetFor(g.empCode, g.empName, g.month);
+    const target = proratedTarget(rawTarget, emp.joiningDate, emp.exitDate, g.month);
+
+    let eligibility='ELIGIBLE', reasons=[];
+    if(emp.active===false) { eligibility='NOT ELIGIBLE'; reasons.push('Employee inactive'); }
+    if(!target || target<=0){ eligibility='HOLD FOR REVIEW'; reasons.push('Target not configured'); }
+    if(g.rows.length===0 && !emp.empCode){ eligibility='HOLD FOR REVIEW'; reasons.push('Sales data missing'); }
+
+    let achv = target>0 ? (netEligibleSales/target*100) : null;
+    if(achv!==null && achv < CONFIG.minimumEligibility && eligibility==='ELIGIBLE'){
+      eligibility='NOT ELIGIBLE'; reasons.push('Achievement below minimum threshold ('+CONFIG.minimumEligibility+'%)');
+    }
+    if(g.rows.length===0 && target>0){ reasons.push('No sales data for period'); achv=0; }
+
+    let gross=0, rate=0, slabLabel='—';
+    if(eligibility==='ELIGIBLE' && target>0){
+      const calc = computeIncentiveAmount(netEligibleSales, target, achv);
+      gross = calc.gross; rate = calc.rate; slabLabel = calc.slabLabel;
+    }
+    const finalIncentive = eligibility==='ELIGIBLE' ? round(gross, CONFIG.rounding) : 0;
+
+    INCENTIVE_DATA.push({
+      empCode:g.empCode, empName: g.empName || (emp.empName||g.empCode), designation: emp.designation||(g.rows[0]?g.rows[0].designation:'SO'),
+      hq: emp.hq||(g.rows[0]?g.rows[0].hq:null), state: emp.state||(g.rows[0]?g.rows[0].state:null),
+      asm: emp.asm||(g.rows[0]?g.rows[0].asm:null), rsm: emp.rsm||(g.rows[0]?g.rows[0].rsm:null),
+      month: g.month, grossSales, excludedSales, returns, creditNotes, otherAdj, netEligibleSales,
+      target, achv, eligibility, reasons, slabLabel, rate, gross, finalIncentive
+    });
+  });
+
+  INCENTIVE_DATA.sort((a,b)=> b.finalIncentive - a.finalIncentive);
+  renderAll();
+}
+document.getElementById('recalcBtn').addEventListener('click', runFullRecalc);
+
+/* ===================== FILTER OPTIONS ===================== */
+function populateFilterOptions(){
+  const months = [...new Set(NORMALIZED_SALES.map(r=>r.month))].sort();
+  const monthSel = document.getElementById('monthFilter');
+  monthSel.innerHTML = '<option value="ALL">All Months (YTD)</option>' + months.map(m=>`<option value="${m}">${monthLabel(m)}</option>`).join('');
+  if(months.length) monthSel.value = months[months.length-1];
+
+  fillSelect('stateFilter', [...new Set(NORMALIZED_SALES.map(r=>r.state).filter(Boolean))]);
+  fillSelect('hqFilter', [...new Set(NORMALIZED_SALES.map(r=>r.hq).filter(Boolean))]);
+  fillSelect('asmFilter', [...new Set(NORMALIZED_SALES.map(r=>r.asm).filter(Boolean))]);
+  fillSelect('rsmFilter', [...new Set(NORMALIZED_SALES.map(r=>r.rsm).filter(Boolean))]);
+  fillSelect('designationFilter', [...new Set(NORMALIZED_SALES.map(r=>r.designation).filter(Boolean))]);
+  fillSelect('eligFilter', ['ELIGIBLE','NOT ELIGIBLE','PARTIALLY ELIGIBLE','HOLD FOR REVIEW']);
+}
+function fillSelect(id, values){
+  const sel = document.getElementById(id);
+  const cur = sel.value;
+  sel.innerHTML = '<option value="ALL">All</option>' + values.map(v=>`<option value="${v}">${v}</option>`).join('');
+  if(values.includes(cur)) sel.value = cur;
+}
+['monthFilter','stateFilter','hqFilter','asmFilter','rsmFilter','designationFilter','eligFilter'].forEach(id=>{
+  document.getElementById(id).addEventListener('change', ()=>{ registerPage=0; runFullRecalc(); });
+});
+function applyFilters(data){
+  const st = document.getElementById('stateFilter').value, hq=document.getElementById('hqFilter').value,
+    asm=document.getElementById('asmFilter').value, rsm=document.getElementById('rsmFilter').value,
+    desg=document.getElementById('designationFilter').value, elig=document.getElementById('eligFilter').value;
+  return data.filter(d=>
+    (st==='ALL'||d.state===st) && (hq==='ALL'||d.hq===hq) && (asm==='ALL'||d.asm===asm) &&
+    (rsm==='ALL'||d.rsm===rsm) && (desg==='ALL'||d.designation===desg) && (elig==='ALL'||d.eligibility===elig)
+  );
+}
+
+/* ===================== RENDER: KPIs ===================== */
+function renderAll(){
+  renderWarnings();
+  renderKpis();
+  renderRegister();
+  renderCharts();
+  renderInsights();
+  renderEmployeeSelect();
+  renderManagement();
+  renderTargetTable();
+  renderAdjTable();
+  renderExclTable();
+  renderSettingsView();
+}
+function renderKpis(){
+  const data = applyFilters(INCENTIVE_DATA);
+  const totalSales = data.reduce((s,d)=>s+d.netEligibleSales,0);
+  const totalTarget = data.reduce((s,d)=>s+d.target,0);
+  const achv = totalTarget>0 ? totalSales/totalTarget*100 : 0;
+  const eligible = data.filter(d=>d.eligibility==='ELIGIBLE');
+  const payable = eligible.reduce((s,d)=>s+d.finalIncentive,0);
+  const avgIncentive = eligible.length ? payable/eligible.length : 0;
+  const aboveTarget = data.filter(d=>d.achv!==null && d.achv>=100).length;
+  const belowMin = data.filter(d=>d.eligibility==='NOT ELIGIBLE').length;
+
+  const kpis = [
+    ['TOTAL TEAM SALES', inr(totalSales)],
+    ['TOTAL TARGET', inr(totalTarget)],
+    ['TEAM ACHIEVEMENT', pct(achv)],
+    ['ELIGIBLE EMPLOYEES', eligible.length],
+    ['INCENTIVE PAYABLE', inr(payable)],
+    ['AVG INCENTIVE / EMPLOYEE', inr(avgIncentive)],
+    ['EMPLOYEES ABOVE TARGET', aboveTarget],
+    ['BELOW MIN ELIGIBILITY', belowMin],
+  ];
+  document.getElementById('kpiGrid').innerHTML = kpis.map(([l,v])=>`<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join('');
+}
+
+/* ===================== RENDER: REGISTER TABLE ===================== */
+function eligPill(e){
+  const map = {'ELIGIBLE':'green','NOT ELIGIBLE':'red','PARTIALLY ELIGIBLE':'amber','HOLD FOR REVIEW':'grey'};
+  return `<span class="pill ${map[e]||'grey'}">${e}</span>`;
+}
+function achvPill(a){
+  if(a===null) return '<span class="pill grey">—</span>';
+  let cls='red';
+  if(a>=CONFIG.minimumEligibility && a<100) cls='amber';
+  else if(a>=100 && a<120) cls='green';
+  else if(a>=120) cls='darkgreen';
+  return `<span class="pill ${cls}">${pct(a)}</span>`;
+}
+document.querySelectorAll('.tab[data-hier]').forEach(t=>t.addEventListener('click', ()=>{
+  document.querySelectorAll('.tab[data-hier]').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active'); activeHier = t.dataset.hier; registerPage=0; renderRegister();
+}));
+document.getElementById('registerSearch').addEventListener('input', ()=>{ registerPage=0; renderRegister(); });
+document.getElementById('pagePrev').addEventListener('click', ()=>{ if(registerPage>0){registerPage--; renderRegister();} });
+document.getElementById('pageNext').addEventListener('click', ()=>{ registerPage++; renderRegister(); });
+
+function renderRegister(){
+  let data = applyFilters(INCENTIVE_DATA).filter(d=>d.designation===activeHier || (activeHier==='SO' && !['ASE','ASM','RSM'].includes(d.designation)));
+  const q = document.getElementById('registerSearch').value.trim().toLowerCase();
+  if(q) data = data.filter(d=>(d.empName||'').toLowerCase().includes(q) || (d.empCode||'').toLowerCase().includes(q));
+  data.sort((a,b)=>b.finalIncentive-a.finalIncentive);
+
+  const start = registerPage*PAGE_SIZE;
+  const pageData = data.slice(start, start+PAGE_SIZE);
+  document.getElementById('registerBody').innerHTML = pageData.map((d,i)=>`
+    <tr>
+      <td>${start+i+1}</td><td>${d.empName}</td><td>${d.empCode}</td><td>${d.designation}</td>
+      <td>${d.hq||'—'}</td><td>${d.asm||'—'}</td><td>${d.rsm||'—'}</td>
+      <td>${inr(d.target)}</td><td>${inr(d.netEligibleSales)}</td><td>${achvPill(d.achv)}</td>
+      <td>${eligPill(d.eligibility)}</td><td>${d.slabLabel||'—'}</td><td>${d.rate}%</td>
+      <td>${inr(d.gross)}</td><td>${inr(d.returns+d.creditNotes+d.otherAdj)}</td>
+      <td><b>${inr(d.finalIncentive)}</b></td>
+      <td><button class="ghost" onclick="showCalc('${d.empCode}','${d.month}')">View Calc</button></td>
+    </tr>`).join('');
+  document.getElementById('registerPageInfo').textContent = `Showing ${data.length?start+1:0}-${Math.min(start+PAGE_SIZE,data.length)} of ${data.length}`;
+}
+
+/* ===================== CALCULATION EXPLANATION MODAL ===================== */
+function showCalc(empCode, month){
+  const d = INCENTIVE_DATA.find(x=>x.empCode===empCode && x.month===month);
+  if(!d) return;
+  document.getElementById('calcModalBody').innerHTML = `
+    <h3>${d.empName} — ${monthLabel(d.month)}</h3>
+    <div class="calc-line"><span>Employee Code</span><span>${d.empCode}</span></div>
+    <div class="calc-line"><span>Designation / HQ</span><span>${d.designation} / ${d.hq||'—'}</span></div>
+    <div class="calc-line"><span>Target</span><span>${inr(d.target)}</span></div>
+    <div class="calc-line"><span>Gross Sales</span><span>${inr(d.grossSales)}</span></div>
+    <div class="calc-line"><span>Excluded Sales (not counted)</span><span>${inr(d.excludedSales)}</span></div>
+    <div class="calc-line"><span>Returns</span><span>-${inr(d.returns)}</span></div>
+    <div class="calc-line"><span>Credit Notes</span><span>-${inr(d.creditNotes)}</span></div>
+    <div class="calc-line"><span>Other Adjustments</span><span>-${inr(d.otherAdj)}</span></div>
+    <div class="calc-line"><span>Net Eligible Sales</span><span>${inr(d.netEligibleSales)}</span></div>
+    <div class="calc-line"><span>Achievement</span><span>${pct(d.achv)}</span></div>
+    <div class="calc-line"><span>Eligibility</span><span>${d.eligibility}${d.reasons.length?' — '+d.reasons.join('; '):''}</span></div>
+    <div class="calc-line"><span>Applicable Slab</span><span>${d.slabLabel}</span></div>
+    <div class="calc-line"><span>Incentive Rate</span><span>${d.rate}%</span></div>
+    <div class="calc-line"><span>Gross Incentive</span><span>${inr(d.gross)}</span></div>
+    <div class="calc-line total"><span>FINAL INCENTIVE</span><span>${inr(d.finalIncentive)}</span></div>
+    <div class="flex" style="margin-top:14px;">
+      <button class="secondary" onclick="printStatement('${d.empCode}','${d.month}')">Print Statement</button>
+    </div>
+  `;
+  document.getElementById('calcModal').classList.add('open');
+}
+document.getElementById('calcModalClose').addEventListener('click', ()=>document.getElementById('calcModal').classList.remove('open'));
+
+function printStatement(empCode, month){
+  const d = INCENTIVE_DATA.find(x=>x.empCode===empCode && x.month===month);
+  const w = window.open('','_blank');
+  w.document.write(`
+    <html><head><title>Incentive Statement</title>
+    <style>body{font-family:Arial;padding:40px;} h2{color:#0F2A47;} table{width:100%;border-collapse:collapse;margin-top:20px;}
+    td{padding:8px;border-bottom:1px solid #ddd;} .sig{display:flex;justify-content:space-between;margin-top:60px;}
+    .sig div{width:30%;border-top:1px solid #333;text-align:center;padding-top:6px;}</style></head><body>
+    <h2>PIL GENERIC DIVISION — SALES INCENTIVE STATEMENT</h2>
+    <p>Month: ${monthLabel(d.month)}</p>
+    <table>
+      <tr><td>Employee</td><td>${d.empName} (${d.empCode})</td></tr>
+      <tr><td>Designation / HQ</td><td>${d.designation} / ${d.hq||'—'}</td></tr>
+      <tr><td>Target</td><td>${inr(d.target)}</td></tr>
+      <tr><td>Gross Sales</td><td>${inr(d.grossSales)}</td></tr>
+      <tr><td>Returns</td><td>-${inr(d.returns)}</td></tr>
+      <tr><td>Credit Notes</td><td>-${inr(d.creditNotes)}</td></tr>
+      <tr><td>Other Adjustments</td><td>-${inr(d.otherAdj)}</td></tr>
+      <tr><td>Net Eligible Sales</td><td>${inr(d.netEligibleSales)}</td></tr>
+      <tr><td>Achievement</td><td>${pct(d.achv)}</td></tr>
+      <tr><td>Eligibility</td><td>${d.eligibility}</td></tr>
+      <tr><td>Slab / Rate</td><td>${d.slabLabel} / ${d.rate}%</td></tr>
+      <tr><td><b>FINAL INCENTIVE</b></td><td><b>${inr(d.finalIncentive)}</b></td></tr>
+    </table>
+    <div class="sig"><div>Prepared By</div><div>Checked By</div><div>Approved By</div></div>
+    </body></html>`);
+  w.document.close(); w.print();
+}
+
+/* ===================== EMPLOYEE DRILL DOWN ===================== */
+function renderEmployeeSelect(){
+  const hint = document.getElementById('empMasterHint');
+  if(hint) hint.style.display = (EMP_MASTER.length===0) ? '' : 'none';
+  const codes = [...new Set(INCENTIVE_DATA.map(d=>d.empCode))];
+  const sel = document.getElementById('empSelect');
+  const cur = sel.value;
+  sel.innerHTML = codes.map(c=>{
+    const rec = INCENTIVE_DATA.find(d=>d.empCode===c);
+    return `<option value="${c}">${rec.empName} (${c})</option>`;
+  }).join('');
+  if(codes.includes(cur)) sel.value = cur;
+  sel.onchange = renderEmployeeDetail;
+  renderEmployeeDetail();
+}
+function renderEmployeeDetail(){
+  const code = document.getElementById('empSelect').value;
+  if(!code){ document.getElementById('empDetailBody').innerHTML=''; return; }
+  const records = INCENTIVE_DATA.filter(d=>d.empCode===code).sort((a,b)=>a.month.localeCompare(b.month));
+  if(!records.length){ document.getElementById('empDetailBody').innerHTML=''; return; }
+  const latest = records[records.length-1];
+  document.getElementById('empDetailBody').innerHTML = `
+    <div class="card">
+      <h3>${latest.empName} — ${latest.designation}</h3>
+      <div class="grid" style="grid-template-columns:repeat(4,1fr);">
+        <div><label>Code</label>${latest.empCode}</div>
+        <div><label>HQ / State</label>${latest.hq||'—'} / ${latest.state||'—'}</div>
+        <div><label>ASM</label>${latest.asm||'—'}</div>
+        <div><label>RSM</label>${latest.rsm||'—'}</div>
+      </div>
+    </div>
+    <div class="card">
+      <h3>${monthLabel(latest.month)} Performance</h3>
+      <div class="calc-line"><span>Target</span><span>${inr(latest.target)}</span></div>
+      <div class="calc-line"><span>Gross Sales</span><span>${inr(latest.grossSales)}</span></div>
+      <div class="calc-line"><span>Net Eligible Sales</span><span>${inr(latest.netEligibleSales)}</span></div>
+      <div class="calc-line"><span>Achievement</span><span>${pct(latest.achv)}</span></div>
+      <div class="calc-line"><span>Eligibility</span><span>${latest.eligibility}</span></div>
+      <div class="calc-line total"><span>Final Incentive</span><span>${inr(latest.finalIncentive)}</span></div>
+      <button style="margin-top:10px;" onclick="showCalc('${latest.empCode}','${latest.month}')">View Full Calculation</button>
+    </div>
+    <div class="card">
+      <h3>Monthly Trend</h3>
+      <div class="chart-wrap"><canvas id="empTrendChart"></canvas></div>
+    </div>
+  `;
+  const ctx = document.getElementById('empTrendChart');
+  if(charts.empTrend) charts.empTrend.destroy();
+  charts.empTrend = new Chart(ctx, {type:'line', data:{
+    labels: records.map(r=>monthLabel(r.month)),
+    datasets:[
+      {label:'Net Sales', data:records.map(r=>r.netEligibleSales), borderColor:'#1E5C97', tension:.3},
+      {label:'Target', data:records.map(r=>r.target), borderColor:'#c07a11', borderDash:[5,5], tension:.3},
+      {label:'Incentive', data:records.map(r=>r.finalIncentive), borderColor:'#1c8a52', tension:.3}
+    ]}, options:{responsive:true, maintainAspectRatio:false}});
+}
+
+/* ===================== CHARTS ===================== */
+function destroyChart(id){ if(charts[id]){ charts[id].destroy(); delete charts[id]; } }
+function renderCharts(){
+  const data = applyFilters(INCENTIVE_DATA);
+  destroyChart('ta'); destroyChart('dist'); destroyChart('asm'); destroyChart('top10'); destroyChart('notelig'); destroyChart('trend');
+
+  charts.ta = new Chart(document.getElementById('chartTargetActual'), {type:'bar', data:{
+    labels:['Team'], datasets:[
+      {label:'Target', data:[data.reduce((s,d)=>s+d.target,0)], backgroundColor:'#c9d7e6'},
+      {label:'Actual', data:[data.reduce((s,d)=>s+d.netEligibleSales,0)], backgroundColor:'#1E5C97'}
+    ]}, options:{responsive:true, maintainAspectRatio:false}});
+
+  const bands = ['<80%','80-99%','100-119%','120%+'];
+  const bandCounts = [0,0,0,0];
+  data.forEach(d=>{ if(d.achv===null) return; if(d.achv<80) bandCounts[0]++; else if(d.achv<100) bandCounts[1]++; else if(d.achv<120) bandCounts[2]++; else bandCounts[3]++; });
+  charts.dist = new Chart(document.getElementById('chartAchDist'), {type:'doughnut', data:{labels:bands, datasets:[{data:bandCounts, backgroundColor:['#b5312a','#c07a11','#1c8a52','#0d5c33']}]}, options:{responsive:true, maintainAspectRatio:false}});
+
+  const byAsm = {};
+  data.forEach(d=>{ const k=d.asm||'Unassigned'; byAsm[k]=(byAsm[k]||0)+d.finalIncentive; });
+  charts.asm = new Chart(document.getElementById('chartByAsm'), {type:'bar', data:{labels:Object.keys(byAsm), datasets:[{label:'Incentive', data:Object.values(byAsm), backgroundColor:'#1E5C97'}]}, options:{responsive:true, maintainAspectRatio:false, indexAxis:'y'}});
+
+  const top10 = [...data].sort((a,b)=>b.finalIncentive-a.finalIncentive).slice(0,10);
+  charts.top10 = new Chart(document.getElementById('chartTop10'), {type:'bar', data:{labels:top10.map(d=>d.empName), datasets:[{label:'Incentive', data:top10.map(d=>d.finalIncentive), backgroundColor:'#0d5c33'}]}, options:{responsive:true, maintainAspectRatio:false, indexAxis:'y'}});
+
+  const notElig = {};
+  data.filter(d=>d.eligibility==='NOT ELIGIBLE').forEach(d=>{ const k=d.hq||'Unassigned'; notElig[k]=(notElig[k]||0)+1; });
+  charts.notelig = new Chart(document.getElementById('chartNotElig'), {type:'bar', data:{labels:Object.keys(notElig), datasets:[{label:'Not Eligible', data:Object.values(notElig), backgroundColor:'#b5312a'}]}, options:{responsive:true, maintainAspectRatio:false}});
+
+  const months = [...new Set(INCENTIVE_DATA.map(d=>d.month))].sort();
+  const trend = months.map(m=>INCENTIVE_DATA.filter(d=>d.month===m).reduce((s,d)=>s+d.finalIncentive,0));
+  charts.trend = new Chart(document.getElementById('chartTrend'), {type:'line', data:{labels:months.map(monthLabel), datasets:[{label:'Incentive Liability', data:trend, borderColor:'#1E5C97', fill:true, backgroundColor:'rgba(30,92,151,.1)', tension:.3}]}, options:{responsive:true, maintainAspectRatio:false}});
+}
+
+/* ===================== MANAGEMENT SUMMARY / INSIGHTS ===================== */
+function renderInsights(){
+  const data = applyFilters(INCENTIVE_DATA);
+  if(!data.length){ document.getElementById('insightList').innerHTML = '<li class="small">Upload sales data to generate insights.</li>'; return; }
+  const eligible = data.filter(d=>d.eligibility==='ELIGIBLE');
+  const above100 = data.filter(d=>d.achv!==null && d.achv>=100);
+  const below = data.filter(d=>d.eligibility==='NOT ELIGIBLE');
+  const totalIncentive = eligible.reduce((s,d)=>s+d.finalIncentive,0);
+  const totalSales = data.reduce((s,d)=>s+d.netEligibleSales,0);
+  const topEarner = [...eligible].sort((a,b)=>b.finalIncentive-a.finalIncentive)[0];
+  const byHq = {}; data.forEach(d=>{ if(!d.hq) return; byHq[d.hq]=(byHq[d.hq]||0)+d.netEligibleSales; });
+  const topHq = Object.entries(byHq).sort((a,b)=>b[1]-a[1])[0];
+  const byAsm = {}; data.forEach(d=>{ if(!d.asm) return; if(!byAsm[d.asm]) byAsm[d.asm]={s:0,t:0}; byAsm[d.asm].s+=d.netEligibleSales; byAsm[d.asm].t+=d.target; });
+  const topAsmEntry = Object.entries(byAsm).map(([k,v])=>[k, v.t>0?v.s/v.t*100:0]).sort((a,b)=>b[1]-a[1])[0];
+  const avgAchv = data.filter(d=>d.achv!==null).reduce((s,d,_,arr)=>s+d.achv/arr.length,0);
+  const incCostPct = totalSales>0 ? (totalIncentive/totalSales*100) : 0;
+
+  const items = [
+    `${eligible.length} employees are eligible for incentive.`,
+    `${above100.length} employees have achieved 100%+.`,
+    `Total incentive liability is ${inr(totalIncentive)}.`,
+    `${below.length} employees are below the minimum eligibility level.`,
+    topEarner ? `Highest incentive earner is ${topEarner.empName} (${inr(topEarner.finalIncentive)}).` : null,
+    topHq ? `Highest performing HQ by net sales is ${topHq[0]}.` : null,
+    topAsmEntry ? `Highest performing ASM by achievement is ${topAsmEntry[0]} (${pct(topAsmEntry[1])}).` : null,
+    `Average team achievement is ${pct(avgAchv)}.`,
+    `Incentive cost is ${incCostPct.toFixed(2)}% of net eligible sales.`
+  ].filter(Boolean);
+  document.getElementById('insightList').innerHTML = items.map(i=>`<li>${i}</li>`).join('');
+}
+
+/* ===================== MANAGEMENT / HIERARCHY ===================== */
+function renderManagement(){
+  const data = applyFilters(INCENTIVE_DATA);
+  const eligible = data.filter(d=>d.eligibility==='ELIGIBLE');
+  const totalIncentive = eligible.reduce((s,d)=>s+d.finalIncentive,0);
+  const totalSales = data.reduce((s,d)=>s+d.netEligibleSales,0);
+  const incentives = eligible.map(d=>d.finalIncentive).sort((a,b)=>a-b);
+  const median = incentives.length ? incentives[Math.floor(incentives.length/2)] : 0;
+  const kpis = [
+    ['Gross Incentive', inr(eligible.reduce((s,d)=>s+d.gross,0))],
+    ['Net Incentive Payable', inr(totalIncentive)],
+    ['Incentive as % of Sales', totalSales>0?(totalIncentive/totalSales*100).toFixed(2)+'%':'—'],
+    ['Incentive / Eligible Employee', inr(eligible.length? totalIncentive/eligible.length:0)],
+    ['Highest Incentive', inr(incentives.length?incentives[incentives.length-1]:0)],
+    ['Lowest Incentive', inr(incentives.length?incentives[0]:0)],
+    ['Median Incentive', inr(median)],
+  ];
+  document.getElementById('liabilityKpis').innerHTML = kpis.map(([l,v])=>`<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join('');
+
+  destroyChart('svc');
+  charts.svc = new Chart(document.getElementById('chartSalesVsCost'), {type:'bar', data:{
+    labels:['Net Sales','Incentive Cost'], datasets:[{data:[totalSales, totalIncentive], backgroundColor:['#1E5C97','#0d5c33']}]
+  }, options:{responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}}});
+
+  // hierarchy rollup by ASM and RSM
+  const rollup = {};
+  data.forEach(d=>{
+    [['ASM', d.asm],['RSM', d.rsm]].forEach(([role, mgr])=>{
+      if(!mgr) return;
+      const key = role+'|'+mgr;
+      if(!rollup[key]) rollup[key]={role, mgr, target:0, sales:0, eligible:0, incentive:0};
+      rollup[key].target += d.target; rollup[key].sales += d.netEligibleSales;
+      if(d.eligibility==='ELIGIBLE'){ rollup[key].eligible++; rollup[key].incentive += d.finalIncentive; }
+    });
+  });
+  document.getElementById('hierBody').innerHTML = Object.values(rollup).map(r=>`
+    <tr><td>${r.mgr}</td><td>${r.role}</td><td>${inr(r.target)}</td><td>${inr(r.sales)}</td>
+    <td>${achvPill(r.target>0? r.sales/r.target*100 : null)}</td><td>${r.eligible}</td><td>${inr(r.incentive)}</td></tr>
+  `).join('');
+}
+
+/* ===================== RULES CONFIG UI ===================== */
+function renderSlabRows(){
+  document.getElementById('slabRows').innerHTML = CONFIG.slabs.map((s,i)=>`
+    <div class="slab-row">
+      <input type="number" value="${s.min}" data-i="${i}" data-f="min" class="slabField" placeholder="Min %">
+      <input type="number" value="${s.max}" data-i="${i}" data-f="max" class="slabField" placeholder="Max %">
+      <input type="text" value="${s.label}" data-i="${i}" data-f="label" class="slabField" placeholder="Label">
+      <input type="number" value="${s.rate}" data-i="${i}" data-f="rate" class="slabField" placeholder="Rate % / ₹">
+      <button class="secondary" onclick="removeSlab(${i})">✕</button>
+    </div>
+  `).join('');
+  document.querySelectorAll('.slabField').forEach(inp=>inp.addEventListener('change', e=>{
+    const i = +e.target.dataset.i, f = e.target.dataset.f;
+    CONFIG.slabs[i][f] = (f==='label') ? e.target.value : Number(e.target.value);
+  }));
+}
+function removeSlab(i){ CONFIG.slabs.splice(i,1); renderSlabRows(); }
+document.getElementById('addSlabBtn').addEventListener('click', ()=>{
+  CONFIG.slabs.push({min:0,max:0,rate:0,label:'New Slab'}); renderSlabRows();
+});
+function loadConfigToUI(){
+  document.getElementById('cfgMode').value = CONFIG.calculationMode;
+  document.getElementById('cfgMinElig').value = CONFIG.minimumEligibility;
+  document.getElementById('cfgTargetBasis').value = CONFIG.targetBasis;
+  document.getElementById('cfgSalesBasis').value = CONFIG.salesBasis;
+  document.getElementById('cfgRounding').value = CONFIG.rounding;
+  document.getElementById('cfgProration').value = CONFIG.proration;
+  renderSlabRows();
+}
+document.getElementById('saveRulesBtn').addEventListener('click', ()=>{
+  CONFIG.calculationMode = document.getElementById('cfgMode').value;
+  CONFIG.minimumEligibility = Number(document.getElementById('cfgMinElig').value);
+  CONFIG.targetBasis = document.getElementById('cfgTargetBasis').value;
+  CONFIG.salesBasis = document.getElementById('cfgSalesBasis').value;
+  CONFIG.rounding = document.getElementById('cfgRounding').value;
+  CONFIG.proration = document.getElementById('cfgProration').value;
+  saveJSON('inc_config', CONFIG);
+  runFullRecalc();
+  alert('Incentive rules saved.');
+});
+document.getElementById('resetRulesBtn').addEventListener('click', ()=>{
+  if(!confirm('Reset all incentive rules to default?')) return;
+  CONFIG = JSON.parse(JSON.stringify(DEFAULT_CONFIG)); saveJSON('inc_config', CONFIG); loadConfigToUI(); runFullRecalc();
+});
+document.getElementById('exportRulesBtn').addEventListener('click', ()=>{
+  const blob = new Blob([JSON.stringify(CONFIG,null,2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'incentive-rules.json'; a.click();
+});
+document.getElementById('importRulesBtn').addEventListener('click', ()=>document.getElementById('importRulesFile').click());
+document.getElementById('importRulesFile').addEventListener('change', e=>{
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev=>{ try{ CONFIG = JSON.parse(ev.target.result); saveJSON('inc_config', CONFIG); loadConfigToUI(); runFullRecalc(); }catch(err){ alert('Invalid rules file.'); } };
+  reader.readAsText(file);
+});
+
+/* ===================== ADJUSTMENTS ===================== */
+function renderAdjTable(){
+  document.getElementById('adjBody').innerHTML = ADJUSTMENTS.map((a,i)=>`
+    <tr><td>${a.empCode}</td><td>${a.date}</td><td>${a.type}</td><td>${a.reason||''}</td>
+    <td>${inr(a.amount)}</td><td>${a.remarks||''}</td>
+    <td><button class="ghost" onclick="removeAdj(${i})">Remove</button></td></tr>
+  `).join('');
+}
+function removeAdj(i){ ADJUSTMENTS.splice(i,1); saveJSON('inc_adjustments', ADJUSTMENTS); renderAdjTable(); runFullRecalc(); }
+document.getElementById('addAdjBtn').addEventListener('click', ()=>{
+  const empCode = prompt('Employee Code:'); if(!empCode) return;
+  const date = prompt('Date (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+  const type = prompt('Type (Sales Return / Expiry Return / Credit Note / Scheme Adjustment / Manual Adjustment):','Sales Return');
+  const reason = prompt('Reason:','');
+  const amount = Number(prompt('Amount (₹):','0'))||0;
+  const remarks = prompt('Remarks:','');
+  ADJUSTMENTS.push({empCode, date, type, reason, amount, remarks});
+  saveJSON('inc_adjustments', ADJUSTMENTS); renderAdjTable(); runFullRecalc();
+});
+
+/* ===================== EXCLUSIONS ===================== */
+function renderExclTable(){
+  document.getElementById('exclBody').innerHTML = EXCLUSIONS.map((e,i)=>`
+    <tr><td>${e.product||''}</td><td>${e.brand||''}</td><td>${e.division||''}</td>
+    <td><button class="ghost" onclick="removeExcl(${i})">Remove</button></td></tr>`).join('');
+}
+function removeExcl(i){ EXCLUSIONS.splice(i,1); saveJSON('inc_exclusions', EXCLUSIONS); renderExclTable(); reprocessExclusions(); }
+document.getElementById('addExclBtn').addEventListener('click', ()=>{
+  const product = document.getElementById('exclProduct').value.trim();
+  const brand = document.getElementById('exclBrand').value.trim();
+  const division = document.getElementById('exclDivision').value.trim();
+  if(!product && !brand && !division){ alert('Provide at least one field.'); return; }
+  EXCLUSIONS.push({product, brand, division});
+  saveJSON('inc_exclusions', EXCLUSIONS);
+  document.getElementById('exclProduct').value=''; document.getElementById('exclBrand').value=''; document.getElementById('exclDivision').value='';
+  renderExclTable(); reprocessExclusions();
+});
+function reprocessExclusions(){
+  NORMALIZED_SALES.forEach(r=>{ const ex = isExcluded(r.product,r.brand,r.division); r.excluded = ex.flag; r.exclusionReason = ex.reason; });
+  runFullRecalc();
+}
+
+/* ===================== TARGET MASTER ===================== */
+function renderTargetTable(){
+  document.getElementById('targetBody').innerHTML = TARGET_MASTER.map((t,i)=>`
+    <tr><td>${t.empCode}</td><td>${t.empName||''}</td><td>${t.hq||''}</td><td>${monthLabel(t.month)}</td>
+    <td>${inr(t.target)}</td><td>${t.targetType||'Individual'}</td>
+    <td><button class="ghost" onclick="removeTarget(${i})">Remove</button></td></tr>`).join('');
+}
+function removeTarget(i){ TARGET_MASTER.splice(i,1); saveJSON('inc_targets', TARGET_MASTER); renderTargetTable(); runFullRecalc(); }
+document.getElementById('addTargetBtn').addEventListener('click', ()=>{
+  const empCode = prompt('Employee Code:'); if(!empCode) return;
+  const empName = prompt('Employee Name:','');
+  const month = prompt('Month (YYYY-MM):', new Date().toISOString().slice(0,7));
+  const target = Number(prompt('Target (₹):','0'))||0;
+  TARGET_MASTER.push({empCode, empName, month, target, targetType:'Individual'});
+  saveJSON('inc_targets', TARGET_MASTER); renderTargetTable(); runFullRecalc();
+});
+document.getElementById('targetUploadBtn').addEventListener('click', ()=>document.getElementById('targetFile').click());
+document.getElementById('targetFile').addEventListener('change', e=>{
+  const file = e.target.files[0]; if(!file) return;
+  readWorkbook(file, wb=>{
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
+    rows.forEach(r=>{
+      const get=(...ks)=>{ for(const k of ks){ const f=Object.keys(r).find(rk=>normKey(rk)===normKey(k)); if(f) return r[f]; } return null; };
+      const monthRaw = get('Month'); const d = parseDate(monthRaw);
+      TARGET_MASTER.push({
+        empCode: get('Employee Code','Code'), empName: get('Employee Name','Name'), hq: get('HQ'),
+        month: d ? monthKey(d) : (monthRaw||'').toString(),
+        target: Number(get('Target'))||0, targetType: get('Target Type')||'Individual'
+      });
+    });
+    saveJSON('inc_targets', TARGET_MASTER); renderTargetTable(); runFullRecalc();
+  });
+});
+document.getElementById('targetExportBtn').addEventListener('click', ()=>{
+  const ws = XLSX.utils.json_to_sheet(TARGET_MASTER);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Targets');
+  XLSX.writeFile(wb, 'target-master.xlsx');
+});
+
+/* ===================== WHAT-IF CALCULATOR ===================== */
+document.getElementById('wiCalcBtn').addEventListener('click', ()=>{
+  const target = Number(document.getElementById('wiTarget').value)||0;
+  const sales = Number(document.getElementById('wiSales').value)||0;
+  const additional = Number(document.getElementById('wiAdditional').value)||0;
+  const modeSel = document.getElementById('wiMode').value;
+  const savedMode = CONFIG.calculationMode;
+  if(modeSel!=='config') CONFIG.calculationMode = modeSel;
+
+  const curAchv = target>0? sales/target*100 : 0;
+  const projSales = sales+additional;
+  const projAchv = target>0? projSales/target*100 : 0;
+  const curCalc = computeIncentiveAmount(sales, target, curAchv);
+  const projCalc = computeIncentiveAmount(projSales, target, projAchv);
+
+  const nextSlab = CONFIG.slabs.find(s=>s.min>curAchv);
+  let requiredAdditional = null;
+  if(nextSlab){ requiredAdditional = Math.max(0, (target*nextSlab.min/100) - sales); }
+
+  CONFIG.calculationMode = savedMode;
+
+  document.getElementById('wiResult').innerHTML = `
+    <div class="calc-line"><span>Current Achievement</span><span>${pct(curAchv)}</span></div>
+    <div class="calc-line"><span>Projected Achievement</span><span>${pct(projAchv)}</span></div>
+    <div class="calc-line"><span>Current Incentive</span><span>${inr(curCalc.gross)}</span></div>
+    <div class="calc-line"><span>Projected Incentive</span><span>${inr(projCalc.gross)}</span></div>
+    <div class="calc-line"><span>Additional Sales Required for Next Slab (${nextSlab?nextSlab.label:'—'})</span><span>${requiredAdditional!==null?inr(requiredAdditional):'Already at top slab'}</span></div>
+    <div class="calc-line total"><span>Additional Incentive Earned</span><span>${inr(projCalc.gross-curCalc.gross)}</span></div>
+  `;
+});
+
+/* ===================== VALIDATION / WARNINGS ===================== */
+function renderWarnings(){
+  const box = document.getElementById('warnArea');
+  let html = '';
+  if(!NORMALIZED_SALES.length && !INCENTIVE_DATA.length){
+    html += `<div class="warn-box">No sales data uploaded yet. Use "Upload Sales Data" or "Load Demo Data" on the Dashboard tab.</div>`;
+  }
+  if(VALIDATION_ERRORS.length){
+    html += `<div class="warn-box error">${VALIDATION_ERRORS.length} sales rows could not be validated and were excluded. <a href="#" onclick="switchView('settings');return false;">View details</a></div>`;
+  }
+  const unconfiguredTargets = [...new Set(INCENTIVE_DATA.filter(d=>!d.target).map(d=>d.empCode))].length;
+  if(unconfiguredTargets){
+    html += `<div class="warn-box">${unconfiguredTargets} employees have no target configured for the selected period — held for review.</div>`;
+  }
+  box.innerHTML = html;
+  const badge = document.getElementById('errBadge');
+  if(VALIDATION_ERRORS.length){ badge.style.display='inline-block'; badge.textContent = VALIDATION_ERRORS.length; }
+  else badge.style.display='none';
+}
+function renderSettingsView(){
+  document.getElementById('settingsWarnDetail').innerHTML = VALIDATION_ERRORS.length ? `
+    <table><thead><tr><th>Row</th><th>Issue</th><th>Employee</th><th>Amount</th></tr></thead>
+    <tbody>${VALIDATION_ERRORS.slice(0,200).map(e=>`<tr><td>${e.row}</td><td>${e.issue}</td><td>${e.empName||'—'}</td><td>${e.netAmount||'—'}</td></tr>`).join('')}</tbody></table>
+    ${VALIDATION_ERRORS.length>200?'<p class="small">Showing first 200 of '+VALIDATION_ERRORS.length+' errors.</p>':''}
+    <button class="secondary" id="downloadErrBtn" style="margin-top:10px;">Download Error Report</button>
+  ` : '<p class="small">No validation errors.</p>';
+  const dl = document.getElementById('downloadErrBtn');
+  if(dl) dl.addEventListener('click', ()=>{
+    const ws = XLSX.utils.json_to_sheet(VALIDATION_ERRORS);
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Errors');
+    XLSX.writeFile(wb, 'validation-errors.xlsx');
+  });
+  document.getElementById('dupStats').innerHTML = [
+    ['Total Rows', DUP_STATS.total],['Valid Rows', DUP_STATS.valid],['Duplicate Rows', DUP_STATS.duplicate],
+    ['Invalid Rows', DUP_STATS.invalid],['Processed Rows', DUP_STATS.processed]
+  ].map(([l,v])=>`<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div></div>`).join('');
+}
+document.getElementById('wipeAllBtn').addEventListener('click', ()=>{
+  if(!confirm('This clears all uploaded data and saved configuration. Continue?')) return;
+  ['inc_config','inc_adjustments','inc_exclusions','inc_targets','inc_empmaster'].forEach(k=>localStorage.removeItem(k));
+  location.reload();
+});
+
+/* ===================== EXPORTS ===================== */
+function exportRegisterExcel(){
+  const data = applyFilters(INCENTIVE_DATA).map(d=>({
+    Employee:d.empName, Code:d.empCode, Designation:d.designation, HQ:d.hq, ASM:d.asm, RSM:d.rsm, Month:monthLabel(d.month),
+    Target:d.target, 'Gross Sales':d.grossSales, Returns:d.returns, 'Credit Notes':d.creditNotes, 'Other Adj':d.otherAdj,
+    'Net Eligible Sales':d.netEligibleSales, 'Achievement %':d.achv, Eligibility:d.eligibility, Slab:d.slabLabel, 'Rate %':d.rate,
+    'Gross Incentive':d.gross, 'Final Incentive':d.finalIncentive
+  }));
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Incentive Register');
+  XLSX.writeFile(wb, 'incentive-register.xlsx');
+}
+function exportManagementSummary(){
+  const data = applyFilters(INCENTIVE_DATA);
+  const eligible = data.filter(d=>d.eligibility==='ELIGIBLE');
+  const summary = [{
+    'Total Team Sales': data.reduce((s,d)=>s+d.netEligibleSales,0),
+    'Total Target': data.reduce((s,d)=>s+d.target,0),
+    'Eligible Employees': eligible.length,
+    'Incentive Payable': eligible.reduce((s,d)=>s+d.finalIncentive,0),
+    'Employees Below Minimum': data.filter(d=>d.eligibility==='NOT ELIGIBLE').length
+  }];
+  const ws = XLSX.utils.json_to_sheet(summary);
+  const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Summary');
+  XLSX.writeFile(wb, 'management-summary.xlsx');
+}
+document.getElementById('exp1').addEventListener('click', exportRegisterExcel);
+document.getElementById('exp2').addEventListener('click', exportManagementSummary);
+document.getElementById('exp3').addEventListener('click', ()=>{
+  const data = applyFilters(INCENTIVE_DATA);
+  let csv = 'Employee,Code,Designation,HQ,Target,NetSales,Achievement,Eligibility,FinalIncentive\n';
+  data.forEach(d=>{ csv += `${d.empName},${d.empCode},${d.designation},${d.hq||''},${d.target},${d.netEligibleSales},${d.achv||0},${d.eligibility},${d.finalIncentive}\n`; });
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'incentive-register.csv'; a.click();
+});
+document.getElementById('exp4').addEventListener('click', ()=>window.print());
+document.getElementById('exportRegisterBtn').addEventListener('click', exportRegisterExcel);
+document.getElementById('printRegisterBtn').addEventListener('click', ()=>window.print());
+
+/* ===================== NAVIGATION ===================== */
+function switchView(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('.navitem').forEach(n=>n.classList.remove('active'));
+  const nav = document.querySelector(`.navitem[data-view="${name}"]`);
+  if(nav) nav.classList.add('active');
+  const titles = {dashboard:'Dashboard', register:'Incentive Register', employee:'Employee Details', targets:'Target Management',
+    rules:'Incentive Rules', adjustments:'Adjustments', exclusions:'Exclusions', whatif:'What-If Calculator',
+    management:'Management Analysis', exports:'Exports', settings:'Settings', mapping:'Column Mapping'};
+  document.getElementById('viewTitle').textContent = titles[name]||name;
+}
+document.querySelectorAll('.navitem[data-view]').forEach(n=>n.addEventListener('click', ()=>switchView(n.dataset.view)));
+
+/* ===================== INIT ===================== */
+loadConfigToUI();
+renderAdjTable(); renderExclTable(); renderTargetTable();
+renderWarnings();
+</script>
+</body>
+</html>
