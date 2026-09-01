@@ -11,8 +11,10 @@
   header{display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;max-width:1320px;margin:0 auto 16px;}
   h1{font-size:20px;color:var(--cyan);letter-spacing:-0.5px;}
   .sub{color:var(--text-dim);font-size:11px;margin-top:4px;}
+  .header-actions{display:flex;gap:10px;flex-wrap:wrap;}
   .link-btn{padding:8px 16px;border-radius:8px;border:1px solid var(--border);color:var(--text-dim);font-size:11px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:transparent;text-decoration:none;display:inline-block;transition:all .15s;}
   .link-btn:hover{border-color:var(--cyan);color:var(--cyan);}
+  .link-btn.incentive-link:hover{border-color:var(--amber);color:var(--amber);}
   .division-tabs{max-width:1320px;margin:0 auto 14px;display:flex;gap:10px;}
   .division-tab{padding:10px 20px;border-radius:10px;border:1px solid var(--border);color:var(--text-dim);font-size:12px;font-weight:700;letter-spacing:0.4px;font-family:'JetBrains Mono',monospace;cursor:pointer;background:var(--surface);transition:all .15s;}
   .division-tab:hover{border-color:var(--cyan);color:var(--cyan);}
@@ -83,7 +85,10 @@
     <h1 id="pageTitle">📊 Sales Dashboard</h1>
     <div class="sub" id="periodLine">Loading period...</div>
   </div>
-  <a href="upload_to_firebase.html" class="link-btn">⬆ Upload New Data</a>
+  <div class="header-actions">
+    <a href="incentive-dashboard.html" target="_blank" rel="noopener noreferrer" class="link-btn incentive-link">💰 Incentive Dashboard</a>
+    <a href="upload_to_firebase.html" class="link-btn">⬆ Upload New Data</a>
+  </div>
 </header>
 
 <div class="division-tabs" id="divisionTabs">
