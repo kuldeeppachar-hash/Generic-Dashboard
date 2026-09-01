@@ -87,7 +87,8 @@ input[type=checkbox]{margin-right:6px;}
 </style>
 </head>
 <body>
-<div class="app">
+<div id="authLoading" style="font-family:'-apple-system',Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#6b7c8d;padding:40px;text-align:center;">Checking session...</div>
+<div class="app" id="appRoot" style="display:none">
   <!-- SIDEBAR -->
   <div class="sidebar">
     <h1>PIL GENERIC DIVISION</h1>
@@ -103,12 +104,15 @@ input[type=checkbox]{margin-right:6px;}
     <div class="navitem" data-view="management">Management Analysis</div>
     <div class="navitem" data-view="exports">Exports</div>
     <div class="navitem" data-view="settings">Settings <span id="errBadge" class="badge-count" style="display:none;">0</span></div>
+    <div style="padding:0 18px;font-size:11px;color:#9fb4cc;margin:4px 0;" id="authEmailLine"></div>
+    <div class="back" id="logoutBtn" style="cursor:pointer;">LOG OUT</div>
     <a href="https://kuldeeppachar-hash.github.io/Generic-Dashboard/dashboard.html" target="_blank" rel="noopener noreferrer" style="text-decoration:none;">
       <div class="back">&larr; Sales Dashboard (opens in new tab)</div>
     </a>
   </div>
 
   <!-- MAIN -->
+
   <div class="main">
     <div class="topbar">
       <h2 id="viewTitle">Dashboard</h2>
@@ -434,7 +438,16 @@ let EMP_MASTER = loadJSON('inc_empmaster', []);
 function loadJSON(key, fallback){
   try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch(e){ return fallback; }
 }
-function saveJSON(key, val){ try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){ console.error(e); } }
+function fbPathFor(key){
+  return key === 'inc_empmaster' ? 'master/team' : 'incentive/' + key.replace(/^inc_/, '');
+}
+function saveJSON(key, val){
+  try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){ console.error(e); }
+  if (saveJSON.__suppressFirebase) return;
+  if (typeof window.fbSet === 'function') {
+    window.fbSet(fbPathFor(key), val).catch(e => console.error('Firebase write failed for', key, e));
+  }
+}
 
 /* ===================== APPLICATION STATE ===================== */
 // Layer 1: RAW_SALES — untouched parsed rows
@@ -693,8 +706,10 @@ function loadDemoData(){
       }
     });
   }
+  saveJSON.__suppressFirebase = true;
   saveJSON('inc_empmaster', EMP_MASTER);
   saveJSON('inc_adjustments', ADJUSTMENTS);
+  saveJSON.__suppressFirebase = false;
   const mapping = {date:'Date', empCode:'Employee Code', empName:'SO Name', designation:'Designation', hq:'HQ',
     state:'State', asm:'ASM', rsm:'RSM', product:'Product', brand:'Brand', division:'Division', qty:'Quantity', netAmount:'Net Amount', invoiceNo:'Invoice No'};
   document.getElementById('salesFileInfo').innerHTML = '<b style="color:#b5312a;">DEMO DATA LOADED — NOT FOR ACTUAL INCENTIVE PAYMENT</b>';
@@ -1435,6 +1450,72 @@ document.querySelectorAll('.navitem[data-view]').forEach(n=>n.addEventListener('
 loadConfigToUI();
 renderAdjTable(); renderExclTable(); renderTargetTable();
 renderWarnings();
+</script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCpleadoQKQStNOjk-Tq9Yqy6uGLVpdKi8",
+  authDomain: "generic-dashboard-b0355.firebaseapp.com",
+  databaseURL: "https://generic-dashboard-b0355-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "generic-dashboard-b0355",
+  storageBucket: "generic-dashboard-b0355.firebasestorage.app",
+  messagingSenderId: "180109315889",
+  appId: "1:180109315889:web:9d91bc775c06ace2a7ea10",
+  measurementId: "G-4LM4R78GRN"
+};
+
+const authApp = initializeApp(firebaseConfig, 'incentiveAuthApp');
+const auth = getAuth(authApp);
+const db = getDatabase(authApp);
+
+// Exposed so the main (non-module) script's saveJSON() can write through to Firebase.
+window.fbSet = (path, value) => set(ref(db, path), value);
+
+async function hydrateFromFirebase(){
+  try {
+    const [teamSnap, cfgSnap, adjSnap, exclSnap, tgtSnap] = await Promise.all([
+      get(ref(db, 'master/team')),
+      get(ref(db, 'incentive/config')),
+      get(ref(db, 'incentive/adjustments')),
+      get(ref(db, 'incentive/exclusions')),
+      get(ref(db, 'incentive/targets')),
+    ]);
+    if (teamSnap.exists()) { EMP_MASTER = teamSnap.val() || []; localStorage.setItem('inc_empmaster', JSON.stringify(EMP_MASTER)); }
+    if (cfgSnap.exists())  { CONFIG = cfgSnap.val(); localStorage.setItem('inc_config', JSON.stringify(CONFIG)); }
+    if (adjSnap.exists())  { ADJUSTMENTS = adjSnap.val() || []; localStorage.setItem('inc_adjustments', JSON.stringify(ADJUSTMENTS)); }
+    if (exclSnap.exists()) { EXCLUSIONS = exclSnap.val() || []; localStorage.setItem('inc_exclusions', JSON.stringify(EXCLUSIONS)); }
+    if (tgtSnap.exists())  { TARGET_MASTER = tgtSnap.val() || []; localStorage.setItem('inc_targets', JSON.stringify(TARGET_MASTER)); }
+
+    // Re-render with whatever came back from Firebase (overwrites the empty-state render that already ran).
+    loadConfigToUI();
+    renderAdjTable(); renderExclTable(); renderTargetTable();
+    renderEmployeeSelect();
+    runFullRecalc();
+    renderWarnings();
+  } catch(e) {
+    console.error('Firebase hydrate failed, staying on local cache:', e);
+  }
+}
+
+onAuthStateChanged(auth, (user) => {
+  if (!user) {
+    window.location.href = 'login.html';
+    return;
+  }
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('appRoot').style.display = 'flex';
+  document.getElementById('authEmailLine').textContent = user.email;
+  hydrateFromFirebase();
+});
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await signOut(auth);
+  window.location.href = 'login.html';
+
+});
 </script>
 </body>
 </html>

@@ -1,0 +1,17 @@
+{
+  "rules": {
+    ".read": true,
+    "months": {
+      ".write": "auth != null && (auth.uid === 'g4LYPkfBByXBofl4nqJoqPPaT6i2' || auth.uid === 'tQxrxNA7ULd21w4HhyTt4pftv2E3')"
+    },
+    "months_index": {
+      ".write": "auth != null && (auth.uid === 'g4LYPkfBByXBofl4nqJoqPPaT6i2' || auth.uid === 'tQxrxNA7ULd21w4HhyTt4pftv2E3')"
+    },
+    "master": {
+      ".write": "auth != null && (auth.uid === 'g4LYPkfBByXBofl4nqJoqPPaT6i2' || auth.uid === 'tQxrxNA7ULd21w4HhyTt4pftv2E3')"
+    },
+    "incentive": {
+      ".write": "auth != null && (auth.uid === 'g4LYPkfBByXBofl4nqJoqPPaT6i2' || auth.uid === 'tQxrxNA7ULd21w4HhyTt4pftv2E3')"
+    }
+  }
+}
