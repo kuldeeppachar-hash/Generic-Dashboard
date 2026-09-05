@@ -32,11 +32,9 @@
     <div class="err" id="err"></div>
   </form>
 </div>
-
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-
 const firebaseConfig = {
   apiKey: "AIzaSyCpleadoQKQStNOjk-Tq9Yqy6uGLVpdKi8",
   authDomain: "generic-dashboard-b0355.firebaseapp.com",
@@ -47,13 +45,22 @@ const firebaseConfig = {
   appId: "1:180109315889:web:9d91bc775c06ace2a7ea10",
   measurementId: "G-4LM4R78GRN"
 };
-
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
-// already signed in -> skip straight to admin
+// Resolve where to send the user after auth: ?next=<page>, falling back to admin.html.
+// Only allow a bare filename (no scheme, no //, no path traversal) so this can't be
+// turned into an open redirect to an external site.
+function getNextPage() {
+  const params = new URLSearchParams(window.location.search);
+  const next = params.get('next');
+  if (next && /^[a-zA-Z0-9_-]+\.html$/.test(next)) return next;
+  return 'admin.html';
+}
+
+// already signed in -> skip straight to the intended page
 onAuthStateChanged(auth, (user) => {
-  if (user) window.location.href = 'admin.html';
+  if (user) window.location.href = getNextPage();
 });
 
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
@@ -67,7 +74,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
   const password = document.getElementById('password').value;
   try {
     await signInWithEmailAndPassword(auth, email, password);
-    window.location.href = 'admin.html';
+    window.location.href = getNextPage();
   } catch (e2) {
     err.textContent = 'Login failed: ' + (e2.code || e2.message);
     btn.disabled = false;
