@@ -156,6 +156,17 @@ input[type=checkbox]{margin-right:6px;}
         <div id="empFileInfo" class="small" style="margin-top:8px;"></div>
       </div>
 
+      <div class="card">
+        <h3>3. Upload Party Master (required if any HQ has more than one SO)</h3>
+        <p class="small" style="margin-top:-6px;">Maps each Customer/Party Code to the SO who owns that account. Needed because the raw SAP export has no employee field — sales are attributed by customer, not by HQ alone.</p>
+        <div class="upload-zone" id="partyDrop">
+          <h4>UPLOAD PARTY MASTER</h4>
+          <p>Customer Code, Customer Name, HQ, Assigned Employee Code, Effective From, Effective To</p>
+          <input type="file" id="partyFile" accept=".xlsx,.xls,.csv" style="display:none;">
+        </div>
+        <div id="partyFileInfo" class="small" style="margin-top:8px;"></div>
+      </div>
+
       <div class="grid kpi-grid" id="kpiGrid"></div>
 
       <div class="card">
@@ -434,12 +445,15 @@ let ADJUSTMENTS = loadJSON('inc_adjustments', []);
 let EXCLUSIONS = loadJSON('inc_exclusions', []);
 let TARGET_MASTER = loadJSON('inc_targets', []);
 let EMP_MASTER = loadJSON('inc_empmaster', []);
+let PARTY_MASTER = loadJSON('inc_partymaster', []);
 
 function loadJSON(key, fallback){
   try{ const v = localStorage.getItem(key); return v ? JSON.parse(v) : fallback; }catch(e){ return fallback; }
 }
 function fbPathFor(key){
-  return key === 'inc_empmaster' ? 'master/team' : 'incentive/' + key.replace(/^inc_/, '');
+  if(key === 'inc_empmaster') return 'master/team';
+  if(key === 'inc_partymaster') return 'master/party';
+  return 'incentive/' + key.replace(/^inc_/, '');
 }
 function saveJSON(key, val){
   try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){ console.error(e); }
@@ -469,20 +483,23 @@ let activeHier = 'SO';
 const FIELD_DEFS = [
   {key:'date', label:'Date / Billing / Invoice Date', required:true, aliases:['date','billing date','invoice date','bill date']},
   {key:'empCode', label:'Employee Code', required:false, aliases:['employee code','emp code','so code','code']},
-  {key:'empName', label:'Employee / SO Name', required:true, aliases:['so name','employee name','name','sales officer']},
+  {key:'empName', label:'Employee / SO Name (leave unmapped if your file has no SO name — use Customer/Party Code instead)', required:false, aliases:['so name','employee name','name','sales officer']},
   {key:'designation', label:'Designation', required:false, aliases:['designation','role']},
   {key:'hq', label:'HQ', required:false, aliases:['hq','headquarter']},
   {key:'state', label:'State', required:false, aliases:['state']},
   {key:'asm', label:'ASM', required:false, aliases:['asm']},
   {key:'rsm', label:'RSM', required:false, aliases:['rsm']},
-  {key:'product', label:'Product', required:false, aliases:['product','product name']},
+  {key:'product', label:'Product', required:false, aliases:['product','product name','product description']},
   {key:'brand', label:'Brand', required:false, aliases:['brand']},
-  {key:'division', label:'Division / Subtype', required:false, aliases:['division','subtype']},
+  {key:'division', label:'Division / Subtype', required:false, aliases:['division','subtype','division name']},
   {key:'qty', label:'Quantity', required:false, aliases:['quantity','qty']},
-  {key:'netAmount', label:'Net / Sales Amount', required:true, aliases:['net amount','sales amount','amount','net value','value']},
-  {key:'invoiceNo', label:'Invoice / Bill No.', required:false, aliases:['invoice','invoice no','bill no']},
+  {key:'netAmount', label:'Net / Sales Amount', required:true, aliases:['net amount','sales amount','amount','net value','value','total netamount in inr']},
+  {key:'invoiceNo', label:'Invoice / Bill No.', required:false, aliases:['invoice','invoice no','bill no','invoice number']},
+  {key:'customerCode', label:'Customer / Party Code (used to identify the SO via Party Master)', required:false, aliases:['customer code','party code','customer','stockist code']},
+  {key:'customerName', label:'Customer / Party Name', required:false, aliases:['customer name','party name','stockist']},
   {key:'target', label:'Target (if present in sales file)', required:false, aliases:['target']},
 ];
+// empName is required UNLESS customerCode is mapped (party-based attribution takes over)
 
 /* ===================== UTIL ===================== */
 function inr(num){
@@ -525,6 +542,7 @@ function wireDrop(zoneId, inputId, handler){
 }
 wireDrop('salesDrop','salesFile', f=>handleSalesFile(f));
 wireDrop('empDrop','empFile', f=>handleEmpFile(f));
+wireDrop('partyDrop','partyFile', f=>handlePartyFile(f));
 
 function readWorkbook(file, cb){
   const reader = new FileReader();
@@ -560,8 +578,31 @@ function handleEmpFile(file){
       };
     });
     saveJSON('inc_empmaster', EMP_MASTER);
+    document.getElementById('empFileInfo').innerHTML = `<b style="color:#1c8a52;">✓ Saved & synced — ${EMP_MASTER.length} employees.</b>`;
     renderEmployeeSelect();
     runFullRecalc();
+  });
+}
+function handlePartyFile(file){
+  document.getElementById('partyFileInfo').textContent = 'Loaded: '+file.name;
+  readWorkbook(file, wb=>{
+    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(sheet, {defval:null});
+    PARTY_MASTER = rows.map(r=>{
+      const get = (...keys)=>{ for(const k of keys){ const found = Object.keys(r).find(rk=>normKey(rk)===normKey(k)); if(found) return r[found]; } return null; };
+      return {
+        customerCode: get('Customer Code','Party Code','Customer'),
+        customerName: get('Customer Name','Party Name'),
+        hq: get('HQ'),
+        empCode: get('Assigned Employee Code','Employee Code','Emp Code'),
+        effectiveFrom: get('Effective From'),
+        effectiveTo: get('Effective To'),
+        remarks: get('Remarks')
+      };
+    }).filter(p=>p.customerCode);
+    saveJSON('inc_partymaster', PARTY_MASTER);
+    document.getElementById('partyFileInfo').innerHTML = `<b style="color:#1c8a52;">✓ Saved & synced — ${PARTY_MASTER.length} party mappings.</b>`;
+    if(NORMALIZED_SALES.length) runFullRecalc();
   });
 }
 
@@ -600,6 +641,10 @@ document.getElementById('confirmMappingBtn').addEventListener('click', ()=>{
     alert('Please map required fields: '+missingRequired.map(f=>f.label).join(', '));
     return;
   }
+  if(!mapping.empName && !mapping.customerCode){
+    alert('Map either "Employee / SO Name" or "Customer / Party Code". Your file needs one of these to identify which SO a sale belongs to — if there is no SO name column (common in raw SAP exports), map Customer Code and make sure Party Master is uploaded so the dashboard can resolve it.');
+    return;
+  }
   CURRENT_MAPPING = mapping;
   processSalesRows(CURRENT_WORKBOOK._rows, mapping);
   switchView('dashboard');
@@ -615,37 +660,73 @@ function processSalesRows(rows, mapping){
   rows.forEach((r,i)=>{
     const g = (k)=> mapping[k] ? r[mapping[k]] : null;
     const dateRaw = g('date'); const date = parseDate(dateRaw);
-    const empName = g('empName'); const netAmount = Number(g('netAmount'));
+    const netAmount = Number(g('netAmount'));
+    const customerCode = g('customerCode'), customerName = g('customerName');
+    const rowHq = g('hq');
+    let empName = g('empName');
     let rowError = null;
     if(!date) rowError = 'Invalid/missing date';
-    else if(!empName) rowError = 'Missing employee name';
     else if(isNaN(netAmount)) rowError = 'Invalid sales amount';
-
-    const invoiceNo = g('invoiceNo');
-    const dedupeKey = invoiceNo ? ('INV:'+invoiceNo) :
-      ['K', normKey(empName), monthKey(date), g('product'), netAmount].join('|');
 
     if(rowError){
       invalid++;
-      VALIDATION_ERRORS.push({row:i+2, issue:rowError, empName, netAmount:g('netAmount')});
+      VALIDATION_ERRORS.push({row:i+2, issue:rowError, empName: empName||customerName, netAmount:g('netAmount')});
       return;
     }
+
+    // ---- ATTRIBUTION: resolve which employee this sale belongs to ----
+    let empCode = null, attributionReason = null;
+    if(mapping.empName && empName){
+      empCode = g('empCode') || ('AUTO-'+normKey(empName));
+    } else if(customerCode){
+      const match = PARTY_MASTER.find(p => normKey(p.customerCode)===normKey(customerCode) &&
+        (!p.effectiveFrom || parseDate(p.effectiveFrom) <= date) &&
+        (!p.effectiveTo || parseDate(p.effectiveTo) >= date));
+      if(match){
+        empCode = match.empCode;
+        const emp = getEmpInfo(empCode, null);
+        empName = emp ? emp.empName : empCode;
+      } else {
+        const hqEmployees = EMP_MASTER.filter(e => normKey(e.hq)===normKey(rowHq) && e.active!==false);
+        if(hqEmployees.length===1){
+          empCode = hqEmployees[0].empCode; empName = hqEmployees[0].empName;
+          attributionReason = 'Auto-assigned: sole active SO at HQ (party not in Party Master)';
+        } else {
+          rowError = hqEmployees.length>1
+            ? 'Party not found in Party Master — HQ has '+hqEmployees.length+' SOs, cannot auto-assign'
+            : 'Party not found in Party Master and no active SO mapped to this HQ';
+        }
+      }
+    } else {
+      rowError = 'No employee name and no customer code — cannot attribute this sale';
+    }
+
+    if(rowError){
+      invalid++;
+      VALIDATION_ERRORS.push({row:i+2, issue:rowError, empName: customerName||empName||'—', netAmount:g('netAmount')});
+      return;
+    }
+
+    const invoiceNo = g('invoiceNo');
+    const dedupeKey = invoiceNo ? ('INV:'+invoiceNo) :
+      ['K', normKey(empCode), monthKey(date), g('product'), netAmount].join('|');
     if(seenKeys.has(dedupeKey)){ dup++; return; }
     seenKeys.add(dedupeKey);
     valid++;
 
-    const empCode = g('empCode') || ('AUTO-'+normKey(empName));
     const excluded = isExcluded(g('product'), g('brand'), g('division'));
 
     NORMALIZED_SALES.push({
       date, month: monthKey(date),
       empCode, empName,
+      customerCode, customerName,
       designation: g('designation') || inferDesignation(empCode, empName),
-      hq: g('hq'), state: g('state'), asm: g('asm'), rsm: g('rsm'),
+      hq: rowHq, state: g('state'), asm: g('asm'), rsm: g('rsm'),
       product: g('product'), brand: g('brand'), division: g('division'),
       qty: Number(g('qty'))||0,
       netAmount: netAmount,
       excluded: excluded.flag, exclusionReason: excluded.reason,
+      attributionReason,
       target: Number(g('target'))||null
     });
   });
@@ -1389,7 +1470,7 @@ function renderSettingsView(){
 }
 document.getElementById('wipeAllBtn').addEventListener('click', ()=>{
   if(!confirm('This clears all uploaded data and saved configuration. Continue?')) return;
-  ['inc_config','inc_adjustments','inc_exclusions','inc_targets','inc_empmaster'].forEach(k=>localStorage.removeItem(k));
+  ['inc_config','inc_adjustments','inc_exclusions','inc_targets','inc_empmaster','inc_partymaster'].forEach(k=>localStorage.removeItem(k));
   location.reload();
 });
 
@@ -1476,18 +1557,20 @@ window.fbSet = (path, value) => set(ref(db, path), value);
 
 async function hydrateFromFirebase(){
   try {
-    const [teamSnap, cfgSnap, adjSnap, exclSnap, tgtSnap] = await Promise.all([
+    const [teamSnap, cfgSnap, adjSnap, exclSnap, tgtSnap, partySnap] = await Promise.all([
       get(ref(db, 'master/team')),
       get(ref(db, 'incentive/config')),
       get(ref(db, 'incentive/adjustments')),
       get(ref(db, 'incentive/exclusions')),
       get(ref(db, 'incentive/targets')),
+      get(ref(db, 'master/party')),
     ]);
     if (teamSnap.exists()) { EMP_MASTER = teamSnap.val() || []; localStorage.setItem('inc_empmaster', JSON.stringify(EMP_MASTER)); }
     if (cfgSnap.exists())  { CONFIG = cfgSnap.val(); localStorage.setItem('inc_config', JSON.stringify(CONFIG)); }
     if (adjSnap.exists())  { ADJUSTMENTS = adjSnap.val() || []; localStorage.setItem('inc_adjustments', JSON.stringify(ADJUSTMENTS)); }
     if (exclSnap.exists()) { EXCLUSIONS = exclSnap.val() || []; localStorage.setItem('inc_exclusions', JSON.stringify(EXCLUSIONS)); }
     if (tgtSnap.exists())  { TARGET_MASTER = tgtSnap.val() || []; localStorage.setItem('inc_targets', JSON.stringify(TARGET_MASTER)); }
+    if (partySnap.exists()){ PARTY_MASTER = partySnap.val() || []; localStorage.setItem('inc_partymaster', JSON.stringify(PARTY_MASTER)); }
 
     // Re-render with whatever came back from Firebase (overwrites the empty-state render that already ran).
     loadConfigToUI();
