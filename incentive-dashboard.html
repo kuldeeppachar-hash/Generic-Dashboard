@@ -561,10 +561,15 @@ function handleSalesFile(file){
     openMappingScreen(wb);
   });
 }
+function findSheet(wb, nameHints){
+  const match = wb.SheetNames.find(n => nameHints.some(h => normKey(n).includes(h)));
+  return match || wb.SheetNames[0];
+}
 function handleEmpFile(file){
   document.getElementById('empFileInfo').textContent = 'Loaded: '+file.name;
   readWorkbook(file, wb=>{
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const sheetName = findSheet(wb, ['employee master','employee','team']);
+    const sheet = wb.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, {defval:null});
     EMP_MASTER = rows.map(r=>{
       const get = (...keys)=>{ for(const k of keys){ const found = Object.keys(r).find(rk=>normKey(rk)===normKey(k)); if(found) return r[found]; } return null; };
@@ -576,7 +581,7 @@ function handleEmpFile(file){
         monthlyTarget: Number(get('Monthly Target','Target'))||0,
         active: (get('Active/Inactive','Active')||'Active').toString().toLowerCase().indexOf('inactive')===-1
       };
-    });
+    }).filter(e=>e.empCode);
     saveJSON('inc_empmaster', EMP_MASTER);
     document.getElementById('empFileInfo').innerHTML = `<b style="color:#1c8a52;">✓ Saved & synced — ${EMP_MASTER.length} employees.</b>`;
     renderEmployeeSelect();
@@ -586,7 +591,8 @@ function handleEmpFile(file){
 function handlePartyFile(file){
   document.getElementById('partyFileInfo').textContent = 'Loaded: '+file.name;
   readWorkbook(file, wb=>{
-    const sheet = wb.Sheets[wb.SheetNames[0]];
+    const sheetName = findSheet(wb, ['party master','party']);
+    const sheet = wb.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(sheet, {defval:null});
     PARTY_MASTER = rows.map(r=>{
       const get = (...keys)=>{ for(const k of keys){ const found = Object.keys(r).find(rk=>normKey(rk)===normKey(k)); if(found) return r[found]; } return null; };
@@ -1381,12 +1387,15 @@ document.getElementById('targetUploadBtn').addEventListener('click', ()=>documen
 document.getElementById('targetFile').addEventListener('change', e=>{
   const file = e.target.files[0]; if(!file) return;
   readWorkbook(file, wb=>{
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {defval:null});
+    const sheetName = findSheet(wb, ['target master','target']);
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {defval:null});
     rows.forEach(r=>{
       const get=(...ks)=>{ for(const k of ks){ const f=Object.keys(r).find(rk=>normKey(rk)===normKey(k)); if(f) return r[f]; } return null; };
       const monthRaw = get('Month'); const d = parseDate(monthRaw);
+      const empCode = get('Employee Code','Code');
+      if(!empCode) return;
       TARGET_MASTER.push({
-        empCode: get('Employee Code','Code'), empName: get('Employee Name','Name'), hq: get('HQ'),
+        empCode, empName: get('Employee Name','Name'), hq: get('HQ'),
         month: d ? monthKey(d) : (monthRaw||'').toString(),
         target: Number(get('Target'))||0, targetType: get('Target Type')||'Individual'
       });
