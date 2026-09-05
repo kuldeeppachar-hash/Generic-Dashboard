@@ -1467,7 +1467,7 @@ const firebaseConfig = {
   measurementId: "G-4LM4R78GRN"
 };
 
-const authApp = initializeApp(firebaseConfig, 'incentiveAuthApp');
+const authApp = initializeApp(firebaseConfig);
 const auth = getAuth(authApp);
 const db = getDatabase(authApp);
 
@@ -1503,6 +1503,7 @@ async function hydrateFromFirebase(){
 onAuthStateChanged(auth, (user) => {
   if (!user) {
     window.location.href = 'login.html?next=incentive-dashboard.html';
+    return;
   }
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('appRoot').style.display = 'flex';
@@ -1513,7 +1514,6 @@ onAuthStateChanged(auth, (user) => {
 document.getElementById('logoutBtn').addEventListener('click', async () => {
   await signOut(auth);
   window.location.href = 'login.html';
-
 });
 </script>
 </body>
