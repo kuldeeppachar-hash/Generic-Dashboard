@@ -1503,7 +1503,6 @@ async function hydrateFromFirebase(){
 onAuthStateChanged(auth, (user) => {
   if (!user) {
     window.location.href = 'login.html?next=incentive-dashboard.html';
-    return;
   }
   document.getElementById('authLoading').style.display = 'none';
   document.getElementById('appRoot').style.display = 'flex';
